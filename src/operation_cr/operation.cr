@@ -5,6 +5,7 @@ module OperationCr
 
       macro finished
         __build_initialize
+        __build_with
       end
     end
 
@@ -17,6 +18,25 @@ module OperationCr
         {% end %}
       )
         prepare
+      end
+    end
+
+    # Generates a per-subclass `.with` that validates kwarg keys at compile
+    # time against the subclass's `KW_PARAMS`. Unknown keys raise a clear
+    # error at the user's call site rather than triggering a confusing
+    # "missing argument" error deep inside `partially_applied.cr`.
+    #
+    # The escaped (`\{% %}`) blocks survive this outer macro expansion and
+    # land in the generated method body, where they run at method
+    # instantiation time -- once per distinct kwargs shape `T`.
+    macro __build_with
+      def self.with(**args : **T) forall T
+        \{% for key in T.keys %}
+          \{% if !@type.constant("KW_PARAMS").keys.map(&.id.stringify).includes?(key.id.stringify) %}
+            \{% raise "unknown param `#{key.id}` for #{@type}. Valid params: #{@type.constant("KW_PARAMS").keys.map(&.id).join(", ").id}" %}
+          \{% end %}
+        \{% end %}
+        ::OperationCr::PartiallyApplied(self, T).new(args)
       end
     end
 

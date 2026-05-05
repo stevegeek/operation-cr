@@ -9,7 +9,6 @@ class GreetUser < OperationCr::Operation
   end
 end
 
-# Same error that `should_fail_unknown_kw.cr` demonstrates: typo'd kwarg
-# at `.with(...)` is now caught at compile time with a clear message that
-# names the operation, the offending key, and the valid params.
+# `grete` is a typo for `greeting` -- should produce a compile error
+# at THIS call site naming the operation, the bad key, and the valid keys.
 GreetUser.with(grete: "Hi").call(name: "World")
