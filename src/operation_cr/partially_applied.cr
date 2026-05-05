@@ -1,21 +1,27 @@
 module OperationCr
-  # Holds a NamedTuple of arguments bound so far for an Operation class O.
-  # The type parameter T encodes which keys are bound, so:
-  #   - .with returns a new PartiallyApplied whose T is the merged shape
-  #   - .call splats T into O.new, so missing required params are a compile-time error
-  class PartiallyApplied(O, T)
-    getter bound : T
+  # Holds positional and keyword arguments bound so far for an Operation class O.
+  #
+  # Type parameters:
+  #   - P: Tuple type capturing the bound positional args (in declaration order)
+  #   - T: NamedTuple type capturing which keyword keys are bound
+  #
+  # Both .with and .call splat into O.new, so missing required params (or wrong
+  # types) surface as compile-time errors via Crystal's normal arg checking.
+  class PartiallyApplied(O, P, T)
+    getter bound_pos : P
+    getter bound_kw : T
 
-    def initialize(@bound : T)
+    def initialize(@bound_pos : P, @bound_kw : T)
     end
 
-    def with(**extra)
-      merged = @bound.merge(extra)
-      PartiallyApplied(O, typeof(merged)).new(merged)
+    def with(*more_pos, **more_kw)
+      merged_pos = @bound_pos + more_pos
+      merged_kw = @bound_kw.merge(more_kw)
+      PartiallyApplied(O, typeof(merged_pos), typeof(merged_kw)).new(merged_pos, merged_kw)
     end
 
-    def call(**extra)
-      O.new(**@bound.merge(extra)).call
+    def call(*more_pos, **more_kw)
+      O.new(*(@bound_pos + more_pos), **@bound_kw.merge(more_kw)).call
     end
   end
 end
