@@ -18,9 +18,11 @@ module OperationCr
     def initialize(@transform : R -> FinalT)
     end
 
-    # The chain is itself callable like an operation: kwargs go to StartOp.call.
-    def call(**args) : FinalT
-      head_result = StartOp.call(**args)
+    # The chain is itself callable like an operation: positional and keyword
+    # args are forwarded to StartOp.call. Intermediate ops in the chain remain
+    # kwargs-only since the user's transformer block returns a NamedTuple.
+    def call(*pos, **args) : FinalT
+      head_result = StartOp.call(*pos, **args)
       @transform.call(head_result)
     end
 
@@ -50,29 +52,33 @@ module OperationCr
       ::OperationCr::Chain(StartOp, R, NewT).new(new_transform)
     end
 
-    # Partial application of the head's kwargs. Mirrors `Operation.with`.
-    def with(**args)
-      ::OperationCr::PartiallyAppliedChain(self, typeof(args)).new(self, args)
+    # Partial application of the head's positional + keyword args.
+    # Mirrors `Operation.with`.
+    def with(*pos, **args)
+      ::OperationCr::PartiallyAppliedChain(self, typeof(pos), typeof(args)).new(self, pos, args)
     end
   end
 
   # Mirrors `PartiallyApplied` but wraps a `Chain` instead of an Operation class.
-  # The chain is held by reference; `.call(**extra)` merges the bound NamedTuple
-  # with any extras and forwards to the chain.
-  class PartiallyAppliedChain(C, T)
+  # Holds the chain by reference plus a Tuple of bound positional args and a
+  # NamedTuple of bound keyword args. `.call` and `.with` accept and append
+  # both, then forward to the chain.
+  class PartiallyAppliedChain(C, P, T)
     getter chain : C
-    getter bound : T
+    getter bound_pos : P
+    getter bound_kw : T
 
-    def initialize(@chain : C, @bound : T)
+    def initialize(@chain : C, @bound_pos : P, @bound_kw : T)
     end
 
-    def with(**extra)
-      merged = @bound.merge(extra)
-      PartiallyAppliedChain(C, typeof(merged)).new(@chain, merged)
+    def with(*more_pos, **more_kw)
+      merged_pos = @bound_pos + more_pos
+      merged_kw = @bound_kw.merge(more_kw)
+      PartiallyAppliedChain(C, typeof(merged_pos), typeof(merged_kw)).new(@chain, merged_pos, merged_kw)
     end
 
-    def call(**extra)
-      @chain.call(**@bound.merge(extra))
+    def call(*more_pos, **more_kw)
+      @chain.call(*(@bound_pos + more_pos), **@bound_kw.merge(more_kw))
     end
   end
 

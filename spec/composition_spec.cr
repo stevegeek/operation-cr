@@ -24,6 +24,16 @@ class Shout < OperationCr::Operation
   end
 end
 
+class SumOp < OperationCr::Operation
+  positional_param a : Int32
+  positional_param b : Int32 = 0
+  param multiplier : Int32 = 1
+
+  def perform : Int32
+    (a + b) * multiplier
+  end
+end
+
 describe "OperationCr::Operation .then composition" do
   describe "two-op chain" do
     it "passes the head's result through the block to the next op" do
@@ -79,6 +89,25 @@ describe "OperationCr::Operation .then composition" do
       chain = Double.then(Stringify) { |r| {value: r} }
       preset = chain.with(x: 7).with(x: 3)
       preset.call.should eq "result=6"
+    end
+  end
+
+  describe "chains with a positional-arg head op" do
+    it "forwards positional args through Chain.call" do
+      chain = SumOp.then(Stringify) { |n| {value: n} }
+      chain.call(2, 3).should eq "result=5"
+    end
+
+    it "forwards mixed positional + keyword through Chain.call" do
+      chain = SumOp.then(Stringify) { |n| {value: n} }
+      chain.call(2, 3, multiplier: 10).should eq "result=50"
+    end
+
+    it "supports partial application of positional + keyword via Chain#with" do
+      chain = SumOp.then(Stringify) { |n| {value: n} }
+      preset = chain.with(7, multiplier: 2)
+      preset.call.should eq "result=14"
+      preset.call(3).should eq "result=20"
     end
   end
 end
