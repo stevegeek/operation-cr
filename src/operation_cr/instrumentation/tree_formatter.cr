@@ -1,7 +1,7 @@
 module OperationCr
   module Instrumentation
-    # Renders a Trace and its children as an ASCII tree. Plain text only
-    # (no ANSI colors in v1).
+    # Renders a Trace and its children as an ASCII tree. Plain text — no
+    # ANSI colors.
     #
     # Format:
     #

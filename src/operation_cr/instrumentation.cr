@@ -14,9 +14,9 @@ module OperationCr
   # (or via a `Chain`), each nested call adds itself as a child trace —
   # the formatter shows the full call tree.
   #
-  # Trace state is class-level (not Fiber-local). Crystal apps that
-  # multi-fiber-trace concurrently would need to coordinate. v1
-  # assumption: tracing is a debugging aid run from a single fiber.
+  # Trace state is class-level (not Fiber-local). Concurrent tracing
+  # from multiple fibers would interleave; the intended use is single-
+  # fiber debugging.
   module Instrumentation
     @@stack = [] of Trace
     class_property output : IO = STDOUT
@@ -70,10 +70,5 @@ module OperationCr
       end
     end
 
-    # Inspect-friendly String for a trace param value. Falls back to
-    # `.inspect` (which is safe but verbose for nested structures).
-    def self.inspect_value(value) : String
-      value.inspect
-    end
   end
 end

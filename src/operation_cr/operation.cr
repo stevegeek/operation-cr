@@ -32,9 +32,9 @@ module OperationCr
     end
 
     # Class-level introspection of which params are *required* (no default).
-    # Used by Curried (to know what's left to fill) and by Instrumentation
-    # (to render param lists). Built per-subclass at `finished` time so each
-    # operation's lists reflect only its own declarations.
+    # Used by Curried to know what's left to fill. Built per-subclass at
+    # `finished` time so each operation's lists reflect only its own
+    # declarations.
     macro __build_required_params
       {% pos_params = @type.constant("POSITIONAL_PARAMS") %}
       {% kw_params = @type.constant("KW_PARAMS") %}
