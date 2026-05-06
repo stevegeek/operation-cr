@@ -9,6 +9,48 @@ module OperationCr
       macro finished
         __build_initialize
         __build_with
+        __build_required_params
+      end
+    end
+
+    # Class-level introspection of which params are *required* (no default).
+    # Used by Curried (to know what's left to fill) and by Instrumentation
+    # (to render param lists). Built per-subclass at `finished` time so each
+    # operation's lists reflect only its own declarations.
+    macro __build_required_params
+      {% pos_params = @type.constant("POSITIONAL_PARAMS") %}
+      {% kw_params = @type.constant("KW_PARAMS") %}
+
+      def self.required_positional_params : Array(Symbol)
+        [
+          {% for name, info in pos_params %}
+            {% if !info[:has_default] %}{{name}},{% end %}
+          {% end %}
+        ] of Symbol
+      end
+
+      def self.required_keyword_params : Array(Symbol)
+        [
+          {% for name, info in kw_params %}
+            {% if !info[:has_default] %}{{name}},{% end %}
+          {% end %}
+        ] of Symbol
+      end
+
+      def self.positional_param_names : Array(Symbol)
+        [
+          {% for name, info in pos_params %}
+            {{name}},
+          {% end %}
+        ] of Symbol
+      end
+
+      def self.keyword_param_names : Array(Symbol)
+        [
+          {% for name, info in kw_params %}
+            {{name}},
+          {% end %}
+        ] of Symbol
       end
     end
 
