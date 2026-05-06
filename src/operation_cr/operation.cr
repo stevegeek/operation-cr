@@ -10,6 +10,24 @@ module OperationCr
         __build_initialize
         __build_with
         __build_required_params
+        __build_trace_params
+      end
+    end
+
+    # Generates a per-instance helper that returns the current bound
+    # params as a Hash(Symbol, String) for trace output. Stringification
+    # uses .inspect so the format is unambiguous (quoted strings,
+    # readable nils, etc.).
+    macro __build_trace_params
+      def __trace_params : Hash(Symbol, String)
+        result = Hash(Symbol, String).new
+        {% for name in @type.constant("POSITIONAL_PARAMS").keys %}
+          result[{{name}}] = {{name.id}}.inspect
+        {% end %}
+        {% for name in @type.constant("KW_PARAMS").keys %}
+          result[{{name}}] = {{name.id}}.inspect
+        {% end %}
+        result
       end
     end
 
@@ -131,9 +149,36 @@ module OperationCr
     abstract def perform
 
     def call
+      if ::OperationCr::Instrumentation.tracing?
+        __traced_call
+      else
+        __plain_call
+      end
+    end
+
+    private def __plain_call
       before_execute
       result = perform
       after_execute(result)
+    end
+
+    private def __traced_call
+      trace = ::OperationCr::Instrumentation::Trace.new(
+        operation_class: self.class,
+        params: __trace_params,
+      )
+      ::OperationCr::Instrumentation.push(trace)
+
+      begin
+        result = __plain_call
+        trace.finish!(result: result.inspect)
+        result
+      rescue e
+        trace.finish!(exception: e)
+        raise e
+      ensure
+        ::OperationCr::Instrumentation.pop
+      end
     end
 
     def prepare
@@ -148,6 +193,12 @@ module OperationCr
 
     def self.call(*pos, **kw)
       new(*pos, **kw).call
+    end
+
+    # Run with tracing on; format the resulting trace tree and return the
+    # operation's result. Mirrors `typed_operation`'s `Operation.explain`.
+    def self.explain(*pos, **kw)
+      ::OperationCr::Instrumentation.explaining { call(*pos, **kw) }
     end
   end
 end
