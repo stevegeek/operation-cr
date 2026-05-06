@@ -118,8 +118,8 @@ module OperationCr
       {% begin %}
         case key
         {% for name in O.constant("KW_PARAMS").keys %}
-        when {{name}}
-          new_kw = @bound_kw.merge({{name.id}}: value)
+        when {{ name }}
+          new_kw = @bound_kw.merge({{ name.id }}: value)
           ::OperationCr::Curried(O, P, typeof(new_kw)).new(@bound_pos, new_kw)
         {% end %}
         else

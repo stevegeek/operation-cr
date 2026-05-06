@@ -92,33 +92,33 @@ module OperationCr
     # kwargs for `NextOp.call`.
     macro then(next_op, &block)
       ::OperationCr::Chain(
-        {{@type}},
-        typeof({{@type}}.allocate.perform),
-        typeof({{next_op}}.allocate.perform),
+        {{ @type }},
+        typeof({{ @type }}.allocate.perform),
+        typeof({{ next_op }}.allocate.perform),
       ).new(
-        ->({{block.args.first.id}} : typeof({{@type}}.allocate.perform)) {
-          %next_args = ({{block.body}})
-          {{next_op}}.call(**%next_args)
+        ->({{ block.args.first.id }} : typeof({{ @type }}.allocate.perform)) {
+          %next_args = ({{ block.body }})
+          {{ next_op }}.call(**%next_args)
         }
       )
     end
 
     # `.then { |result| transformed_value }` — block-only transform, no next op.
     macro then(&block)
-      %transform = ->({{block.args.first.id}} : typeof({{@type}}.allocate.perform)) {
-        ({{block.body}})
+      %transform = ->({{ block.args.first.id }} : typeof({{ @type }}.allocate.perform)) {
+        ({{ block.body }})
       }
       ::OperationCr::Chain(
-        {{@type}},
-        typeof({{@type}}.allocate.perform),
-        typeof({{@type}}.__chain_transform_result(%transform)),
+        {{ @type }},
+        typeof({{ @type }}.allocate.perform),
+        typeof({{ @type }}.__chain_transform_result(%transform)),
       ).new(%transform)
     end
 
     # Type-level helper: applied via `typeof(...)` to learn what a block-only
     # transform produces. Never actually invoked at runtime.
     def self.__chain_transform_result(t)
-      t.call(self.allocate.perform)
+      t.call(allocate.perform)
     end
   end
 end

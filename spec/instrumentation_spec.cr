@@ -98,11 +98,9 @@ describe OperationCr::Instrumentation do
       # TraceGreet as a child line.
       output.should contain("TraceNester")
       output.should contain("TraceGreet")
-      lines = output.split('\n').reject(&.empty?)
       # First line is the parent (no tree connector); a later line has
       # the └── or ├── connector for the child.
-      tree_chars = output.includes?("└──") || output.includes?("├──")
-      tree_chars.should be_true
+      (output.includes?("└──") || output.includes?("├──")).should be_true
     end
 
     it "records exceptions instead of results when perform raises" do
@@ -129,7 +127,7 @@ describe OperationCr::Instrumentation do
       OperationCr::Instrumentation.clear!
       io = IO::Memory.new
       OperationCr::Instrumentation.output = io
-      TraceGreet.call("Eve")  # plain call, no explain
+      TraceGreet.call("Eve") # plain call, no explain
       io.to_s.should be_empty
     ensure
       OperationCr::Instrumentation.output = STDOUT

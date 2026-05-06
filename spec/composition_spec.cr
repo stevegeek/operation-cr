@@ -73,7 +73,7 @@ describe "OperationCr::Operation .then composition" do
     it "supports a sequence of pure transforms" do
       chain = Double
         .then { |r| r + 1 }
-        .then { |r| r.to_s }
+        .then(&.to_s)
       chain.call(x: 4).should eq "9"
     end
   end

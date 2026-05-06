@@ -1,0 +1,7 @@
+Naming/BlockParameterName:
+  Excluded:
+    - spec/**
+
+Naming/QueryBoolMethods:
+  Excluded:
+    - spec/**

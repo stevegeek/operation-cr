@@ -22,10 +22,10 @@ module OperationCr
       def __trace_params : Hash(Symbol, String)
         result = Hash(Symbol, String).new
         {% for name in @type.constant("POSITIONAL_PARAMS").keys %}
-          result[{{name}}] = {{name.id}}.inspect
+          result[{{ name }}] = {{ name.id }}.inspect
         {% end %}
         {% for name in @type.constant("KW_PARAMS").keys %}
-          result[{{name}}] = {{name.id}}.inspect
+          result[{{ name }}] = {{ name.id }}.inspect
         {% end %}
         result
       end
@@ -42,7 +42,7 @@ module OperationCr
       def self.required_positional_params : Array(Symbol)
         [
           {% for name, info in pos_params %}
-            {% if !info[:has_default] %}{{name}},{% end %}
+            {% if !info[:has_default] %}{{ name }},{% end %}
           {% end %}
         ] of Symbol
       end
@@ -50,7 +50,7 @@ module OperationCr
       def self.required_keyword_params : Array(Symbol)
         [
           {% for name, info in kw_params %}
-            {% if !info[:has_default] %}{{name}},{% end %}
+            {% if !info[:has_default] %}{{ name }},{% end %}
           {% end %}
         ] of Symbol
       end
@@ -58,7 +58,7 @@ module OperationCr
       def self.positional_param_names : Array(Symbol)
         [
           {% for name, info in pos_params %}
-            {{name}},
+            {{ name }},
           {% end %}
         ] of Symbol
       end
@@ -66,7 +66,7 @@ module OperationCr
       def self.keyword_param_names : Array(Symbol)
         [
           {% for name, info in kw_params %}
-            {{name}},
+            {{ name }},
           {% end %}
         ] of Symbol
       end
@@ -77,12 +77,12 @@ module OperationCr
       {% kw_params = @type.constant("KW_PARAMS") %}
       def initialize(
         {% for name, info in pos_params %}
-          @{{name.id}} : {{info[:type]}}{% if info[:has_default] %} = {{info[:default]}}{% end %},
+          @{{ name.id }} : {{ info[:type] }}{% if info[:has_default] %} = {{ info[:default] }}{% end %},
         {% end %}
         {% if kw_params.size > 0 %}
         *,
         {% for name, info in kw_params %}
-          @{{name.id}} : {{info[:type]}}{% if info[:has_default] %} = {{info[:default]}}{% end %},
+          @{{ name.id }} : {{ info[:type] }}{% if info[:has_default] %} = {{ info[:default] }}{% end %},
         {% end %}
         {% end %}
       )
@@ -128,7 +128,7 @@ module OperationCr
           default:     decl.value,
         }
       %}
-      getter {{decl.var.id}} : {{decl.type}}
+      getter {{ decl.var.id }} : {{ decl.type }}
     end
 
     macro param(decl)
@@ -143,7 +143,7 @@ module OperationCr
           default:     decl.value,
         }
       %}
-      getter {{decl.var.id}} : {{decl.type}}
+      getter {{ decl.var.id }} : {{ decl.type }}
     end
 
     abstract def perform

@@ -69,6 +69,5 @@ module OperationCr
         pop
       end
     end
-
   end
 end
