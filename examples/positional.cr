@@ -31,11 +31,11 @@ class Repeat < OperationCr::Operation
   end
 end
 
-puts Add.call(2, 3)                                   # => 5
-puts Greet.call("World")                              # => Hello, World!
-puts Greet.call("World", greeting: "Hi")              # => Hi, World!
-puts Repeat.call("hi")                                # => hi hi
-puts Repeat.call("hi", 4)                             # => hi hi hi hi
+puts Add.call(2, 3)                      # => 5
+puts Greet.call("World")                 # => Hello, World!
+puts Greet.call("World", greeting: "Hi") # => Hi, World!
+puts Repeat.call("hi")                   # => hi hi
+puts Repeat.call("hi", 4)                # => hi hi hi hi
 
 # Partial application: bind positionals, finish later.
 add5 = Add.with(5)

@@ -29,7 +29,22 @@ module OperationCr
     # Compose with another operation. The block converts the chain's current
     # FinalT into a NamedTuple of args for `next_op.call`. The new chain's
     # FinalT becomes `typeof(NextOp.allocate.perform)`.
+    #
+    # The block return type is left as `_` because Crystal does not yet
+    # allow `NamedTuple` (generic without specific keys) as a block
+    # return-type bound — `&block : FinalT -> NamedTuple` errors with
+    # "can't use NamedTuple(T) as a block return type yet, use a more
+    # specific type". Returning a non-NamedTuple from the block will
+    # therefore fail as a deep "no overload matches" inside the splat
+    # into `next_op.call(**next_args)` below, rather than a friendly
+    # block-boundary error.
     def then(next_op : NextOp.class, &block : FinalT -> _) forall NextOp
+      # Snapshot @transform and the captured block into locals before
+      # wrapping into the new Proc — the closure would otherwise capture
+      # the instance variable by reference, so any later (hypothetical)
+      # mutation of @transform on this Chain would silently re-route old
+      # downstream chains too. Belt-and-suspenders: Chain currently
+      # exposes no @transform setter.
       old_transform = @transform
       transform_block = block
       new_transform = ->(r : R) {
@@ -43,6 +58,7 @@ module OperationCr
     # Block-only transform (no next op). Block receives the current FinalT and
     # returns the new FinalT.
     def then(&block : FinalT -> NewT) forall NewT
+      # See `#then(next_op, &block)` above for the snapshot rationale.
       old_transform = @transform
       transform_block = block
       new_transform = ->(r : R) {
@@ -53,9 +69,20 @@ module OperationCr
     end
 
     # Partial application of the head's positional + keyword args.
-    # Mirrors `Operation.with`.
-    def with(*pos, **args)
-      ::OperationCr::PartiallyAppliedChain(self, typeof(pos), typeof(args)).new(self, pos, args)
+    # Mirrors `Operation.with`, including the compile-time kwarg-key
+    # validation against the head op's `KW_PARAMS` — a typo'd kwarg here
+    # raises a clear "unknown param `…` for StartOp" error at the user's
+    # call site rather than surfacing as a deep "no overload matches"
+    # when the chain is finally invoked.
+    def with(*pos, **args : **A) forall A
+      {% for key in A.keys %}
+        {% if !StartOp.constant("KW_PARAMS").keys.map(&.id.stringify).includes?(key.id.stringify) %}
+          {% raise "unknown param `#{key.id}` for #{StartOp} (head of Chain). Valid params: #{StartOp.constant("KW_PARAMS").keys.map(&.id).join(", ").id}" %}
+        {% end %}
+      {% end %}
+      # `typeof(self)` rather than `self` — `PartiallyAppliedChain`'s
+      # first type parameter is the chain's *type*, not its value.
+      ::OperationCr::PartiallyAppliedChain(typeof(self), typeof(pos), A).new(self, pos, args)
     end
   end
 

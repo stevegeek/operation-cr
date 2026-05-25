@@ -31,20 +31,20 @@ class Shout < OperationCr::Operation
 end
 
 # Direct call with positional + keyword
-puts Add.call(2, 3, multiplier: 10)         # => 50
+puts Add.call(2, 3, multiplier: 10) # => 50
 
 # Partial application of mixed positional + keyword
 preset = Add.with(7, multiplier: 2)
-puts preset.call                             # => 14
-puts preset.call(3)                          # => 20
+puts preset.call    # => 14
+puts preset.call(3) # => 20
 
 # Three-op chain over the whole shard, head op uses positional + keyword.
 pipeline = Add
   .then(Format) { |n| {value: n} }
   .then(Shout) { |s| {text: s} }
 
-puts pipeline.call(4, 5, multiplier: 3)      # => RESULT=27!
+puts pipeline.call(4, 5, multiplier: 3) # => RESULT=27!
 
 # Chain partial application also threads positional + keyword.
 preset_pipeline = pipeline.with(10, multiplier: 2)
-puts preset_pipeline.call(5)                 # => RESULT=30!
+puts preset_pipeline.call(5) # => RESULT=30!

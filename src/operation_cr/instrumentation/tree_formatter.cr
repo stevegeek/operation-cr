@@ -64,6 +64,10 @@ module OperationCr
         end
       end
 
+      # Empty params (e.g. the synthetic `<block>` root trace from
+      # `Instrumentation.explaining`, or an operation with no declared
+      # params) render as `OpName()` — `join(", ")` over an empty
+      # collection yields an empty string, which is the desired output.
       private def format_params(params : Hash(Symbol, String)) : String
         params.map { |k, v| "#{k}: #{v}" }.join(", ")
       end

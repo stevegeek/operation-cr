@@ -123,6 +123,23 @@ describe OperationCr::Instrumentation do
       OperationCr::Instrumentation.clear!
     end
 
+    it "accepts an io: kwarg that overrides Instrumentation.output" do
+      OperationCr::Instrumentation.clear!
+      # Module-level output points at one IO; .explain(io: ...) writes
+      # elsewhere. The module-level IO must stay untouched.
+      module_io = IO::Memory.new
+      explain_io = IO::Memory.new
+      OperationCr::Instrumentation.output = module_io
+
+      TraceGreet.explain("Zoe", io: explain_io)
+
+      module_io.to_s.should be_empty
+      explain_io.to_s.should contain("TraceGreet")
+    ensure
+      OperationCr::Instrumentation.output = STDOUT
+      OperationCr::Instrumentation.clear!
+    end
+
     it "does not affect output when called without explain" do
       OperationCr::Instrumentation.clear!
       io = IO::Memory.new

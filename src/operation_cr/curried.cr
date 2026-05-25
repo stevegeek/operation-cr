@@ -47,12 +47,12 @@ module OperationCr
         O.required_keyword_params.all? { |k| bound_kw_keys.includes?(k.to_s) }
     end
 
-    # Run the operation with the args bound so far. The macro guard
-    # only emits the actual invocation when the bound (P, T) shape
-    # statically satisfies O's `.new` signature — for un-prepared
-    # Curried instantiations, calling `.call` raises at runtime instead
-    # of failing compilation in unrelated code paths.
-    def call
+    # Compile-time guard: emits `prepared_body` if O's required positional
+    # + keyword params are statically satisfied by the bound (P, T) shape,
+    # otherwise emits `unprepared_body`. Centralised here so the two call
+    # sites that need to branch on it (`#call` no-arg and
+    # `#invoke_if_prepared`) stay in sync.
+    private macro emit_if_prepared(prepared_body, unprepared_body)
       {% if (
               O.constant("POSITIONAL_PARAMS").keys.select { |k| !O.constant("POSITIONAL_PARAMS")[k][:has_default] }.size <= P.type_vars.size
             ) && (
@@ -60,10 +60,22 @@ module OperationCr
                 T.keys.map(&.id.stringify).includes?(k.id.stringify)
               end
             ) %}
-        O.new(*@bound_pos, **@bound_kw).call
+        {{ prepared_body }}
       {% else %}
-        raise ArgumentError.new("Curried(#{O}) is not prepared yet — bind more args via .call(arg) first")
+        {{ unprepared_body }}
       {% end %}
+    end
+
+    # Run the operation with the args bound so far. The macro guard
+    # only emits the actual invocation when the bound (P, T) shape
+    # statically satisfies O's `.new` signature — for un-prepared
+    # Curried instantiations, calling `.call` raises at runtime instead
+    # of failing compilation in unrelated code paths.
+    def call
+      emit_if_prepared(
+        O.new(*@bound_pos, **@bound_kw).call,
+        raise ArgumentError.new("Curried(#{O}) is not prepared yet — bind more args via .call(arg) first")
+      )
     end
 
     # Bind one more arg (positional or keyword, decided automatically by
@@ -92,18 +104,12 @@ module OperationCr
     # Compile-time-checked dispatch: emits the no-arg `.call` invocation
     # only when the bound (P, T) shape matches O's required params. When
     # it doesn't, just returns self so the user can add another arg.
+    # See `emit_if_prepared` macro above.
     protected def invoke_if_prepared
-      {% if (
-              O.constant("POSITIONAL_PARAMS").keys.select { |k| !O.constant("POSITIONAL_PARAMS")[k][:has_default] }.size <= P.type_vars.size
-            ) && (
-              O.constant("KW_PARAMS").keys.select { |k| !O.constant("KW_PARAMS")[k][:has_default] }.all? do |k|
-                T.keys.map(&.id.stringify).includes?(k.id.stringify)
-              end
-            ) %}
-        O.new(*@bound_pos, **@bound_kw).call
-      {% else %}
+      emit_if_prepared(
+        O.new(*@bound_pos, **@bound_kw).call,
         self
-      {% end %}
+      )
     end
 
     private def next_keyword_param : Symbol?

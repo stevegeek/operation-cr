@@ -55,14 +55,6 @@ module OperationCr
         ] of Symbol
       end
 
-      def self.positional_param_names : Array(Symbol)
-        [
-          {% for name, info in pos_params %}
-            {{ name }},
-          {% end %}
-        ] of Symbol
-      end
-
       def self.keyword_param_names : Array(Symbol)
         [
           {% for name, info in kw_params %}
@@ -72,6 +64,15 @@ module OperationCr
       end
     end
 
+    # NOTE: This runs at every subclass's `finished` time (because
+    # `inherited` schedules it unconditionally). A user-defined
+    # `def initialize` on an Operation subclass will collide with — and
+    # be overwritten by — the macro-emitted one. The supported way to
+    # extend the constructor is via `positional_param` / `param` macros
+    # plus `prepare` for derived state; if you need a fully custom
+    # `initialize` you have to either (a) skip the macros entirely and
+    # not declare any params, or (b) compute everything you need from
+    # the declared params inside `prepare`.
     macro __build_initialize
       {% pos_params = @type.constant("POSITIONAL_PARAMS") %}
       {% kw_params = @type.constant("KW_PARAMS") %}
@@ -95,6 +96,13 @@ module OperationCr
     # error at the user's call site rather than triggering a confusing
     # "missing argument" error deep inside `partially_applied.cr`.
     # Positional args can't be misspelled so they flow through unchecked.
+    #
+    # The `\{% ... %}` escaping (vs. plain `{% ... %}`) is load-bearing:
+    # this macro itself runs at `finished`-time inside `inherited`, and
+    # the `{% ... %}` we want to *emit* into the generated `.with` method
+    # body needs to run at the user's `.with(...)` call site — not now.
+    # Escaping with `\{% %}` defers the inner expansion to the second
+    # macro pass.
     macro __build_with
       def self.with(*pos, **args : **T) forall T
         \{% for key in T.keys %}
@@ -181,9 +189,18 @@ module OperationCr
       end
     end
 
+    # Called once at the end of `initialize`, after every param has been
+    # assigned. Runs at construction time (eagerly), so it executes even
+    # when you just `.new(...)` an operation without ever calling `.call`.
+    # Override to compute derived state once per instance. If you need a
+    # hook that fires only when the operation actually runs, use
+    # `before_execute` instead.
     def prepare
     end
 
+    # Called once per `.call`, before `perform`. Override for setup that
+    # should run on every execution (e.g. logging, request-scoped
+    # bookkeeping).
     def before_execute
     end
 
@@ -211,8 +228,10 @@ module OperationCr
 
     # Run with tracing on; format the resulting trace tree and return the
     # operation's result. Mirrors `typed_operation`'s `Operation.explain`.
-    def self.explain(*pos, **kw)
-      ::OperationCr::Instrumentation.explaining { call(*pos, **kw) }
+    # Pass `io:` to direct output somewhere other than
+    # `Instrumentation.output` (e.g. an `IO::Memory` for capture in tests).
+    def self.explain(*pos, io : IO? = nil, **kw)
+      ::OperationCr::Instrumentation.explaining(io: io) { call(*pos, **kw) }
     end
   end
 end

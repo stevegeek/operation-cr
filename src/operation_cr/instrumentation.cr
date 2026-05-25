@@ -63,10 +63,11 @@ module OperationCr
     end
 
     # Run `block` with tracing on. Prints the resulting trace tree to
-    # `Instrumentation.output` and returns the block's result. If the
-    # block raises, the trace is still printed before the exception
-    # propagates.
-    def self.explaining(&)
+    # `io` (defaults to the module-level `Instrumentation.output`) and
+    # returns the block's result. If the block raises, the trace is
+    # still printed before the exception propagates.
+    def self.explaining(io : IO? = nil, &)
+      target = io || output
       root = Trace.new(operation_class: nil, params: {} of Symbol => String)
       push(root)
 
@@ -74,13 +75,13 @@ module OperationCr
         result = yield
         root.finish!(result: nil)
         root.children.each do |child|
-          output.puts(TreeFormatter.new.format(child))
+          target.puts(TreeFormatter.new.format(child))
         end
         result
       rescue e
         root.finish!(exception: e)
         root.children.each do |child|
-          output.puts(TreeFormatter.new.format(child))
+          target.puts(TreeFormatter.new.format(child))
         end
         raise e
       ensure
