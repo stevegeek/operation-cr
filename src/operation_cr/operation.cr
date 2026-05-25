@@ -187,6 +187,20 @@ module OperationCr
     def before_execute
     end
 
+    # Wraps `perform`'s return value before it leaves `.call`. The
+    # default implementation returns the result unchanged.
+    #
+    # IMPORTANT: if you override `after_execute`, its return type MUST
+    # match `typeof(perform)`. `Chain` infers chain-step return types
+    # from `typeof(NextOp.allocate.perform)` (not `typeof(NextOp.call)`)
+    # because the chain machinery needs a type that's stable at
+    # compile time. Returning a different type here (e.g. wrapping into
+    # a Result/envelope) will silently break composition: chained `.then`
+    # blocks will be typed against the raw `perform` return, but the
+    # actual head-op call returns your wrapped type. The mismatch
+    # usually surfaces as a confusing "no overload matches" at the next
+    # `.then`'s block boundary. To wrap results, use `.then { |r| ... }`
+    # on the chain instead.
     def after_execute(result)
       result
     end

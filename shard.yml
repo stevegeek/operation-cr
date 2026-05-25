@@ -1,9 +1,19 @@
 name: operation_cr
 version: 0.1.0
 
+description: |
+  Typed command objects for Crystal. Param macros build a typed
+  initializer; .with, .then, .curry, and .explain layer partial
+  application, linear composition, currying, and STDOUT tracing
+  on top — all with compile-time kwarg key validation.
+
 authors:
   - Stephen Ierodiaconou <stevegeek@gmail.com>
 
 crystal: '>= 1.20.1'
 
 license: MIT
+
+repository: https://github.com/stevegeek/operation-cr
+homepage: https://github.com/stevegeek/operation-cr
+documentation: https://github.com/stevegeek/operation-cr#readme

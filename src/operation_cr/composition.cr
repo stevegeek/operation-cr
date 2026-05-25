@@ -115,8 +115,17 @@ module OperationCr
       ).new(%transform)
     end
 
+    # :nodoc:
     # Type-level helper: applied via `typeof(...)` to learn what a block-only
-    # transform produces. Never actually invoked at runtime.
+    # transform produces. The runtime body is never actually executed —
+    # `allocate.perform` would crash on a zero-initialized instance — so this
+    # method exists purely so the surrounding
+    # `typeof(@type.__chain_transform_result(...))` has something to
+    # type-check. Public because the `.then` macro expands at the user's
+    # call site (outside `Operation`'s scope), so `protected`/`private`
+    # would reject the legitimate macro-emitted call. The `__`-prefix and
+    # `:nodoc:` tag communicate "do not call directly". Calling at runtime
+    # crashes on the `allocate` path.
     def self.__chain_transform_result(t)
       t.call(allocate.perform)
     end

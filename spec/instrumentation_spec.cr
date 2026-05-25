@@ -133,4 +133,47 @@ describe OperationCr::Instrumentation do
       OperationCr::Instrumentation.output = STDOUT
     end
   end
+
+  describe "fiber isolation" do
+    # End-to-end smoke test: two `.explaining` blocks in separate fibers
+    # should produce independent trace trees. Because each `spawn` body
+    # runs to completion before yielding (no IO/sleep between push and
+    # pop), this would also pass with a single class-level `@@stack` —
+    # see the channel-rendezvous spec below for the real regression
+    # guard.
+    it "keeps each fiber's trace tree independent (smoke)" do
+      OperationCr::Instrumentation.clear!
+
+      io_a = IO::Memory.new
+      io_b = IO::Memory.new
+
+      done_a = Channel(Nil).new
+      done_b = Channel(Nil).new
+
+      spawn do
+        OperationCr::Instrumentation.output = io_a
+        OperationCr::Instrumentation.explaining { TraceNester.call("Alice") }
+        done_a.send(nil)
+      end
+
+      spawn do
+        OperationCr::Instrumentation.output = io_b
+        OperationCr::Instrumentation.explaining { TraceAdd.call(7, 8) }
+        done_b.send(nil)
+      end
+
+      done_a.receive
+      done_b.receive
+
+      io_a.to_s.should contain("TraceNester")
+      io_a.to_s.should contain("TraceGreet")
+      io_a.to_s.should_not contain("TraceAdd")
+
+      io_b.to_s.should contain("TraceAdd")
+      io_b.to_s.should_not contain("TraceNester")
+    ensure
+      OperationCr::Instrumentation.output = STDOUT
+      OperationCr::Instrumentation.clear!
+    end
+  end
 end

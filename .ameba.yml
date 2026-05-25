@@ -1,7 +1,18 @@
 Naming/BlockParameterName:
   Excluded:
     - spec/**
+    - examples/**
 
 Naming/QueryBoolMethods:
   Excluded:
     - spec/**
+
+# `param x : Int32` / `positional_param x : Int32` look to ameba's
+# variable-tracker like local-variable assignments to `x` that are
+# never read — but they're macro calls that wire `x` into a class-
+# level constants table. Suppress in spec/ + examples/ where these
+# macros are used by every demo class.
+Lint/UselessAssign:
+  Excluded:
+    - spec/**
+    - examples/**
