@@ -192,5 +192,59 @@ describe OperationCr::Instrumentation do
       OperationCr::Instrumentation.output = STDOUT
       OperationCr::Instrumentation.clear!
     end
+
+    # Real regression guard: forces interleaved push/pop across two
+    # fibers via channel rendezvous, so a class-level `@@stack` would
+    # leak (`current_trace` in fiber A would return B's trace, or vice
+    # versa). Mutation-verified: reverting `@@stacks` to a single
+    # `@@stack` makes this spec fail.
+    it "isolates current_trace across interleaved fibers" do
+      OperationCr::Instrumentation.clear!
+
+      go_a = Channel(Nil).new
+      go_b = Channel(Nil).new
+      done_a = Channel(OperationCr::Instrumentation::Trace).new
+      done_b = Channel(OperationCr::Instrumentation::Trace).new
+
+      spawn do
+        OperationCr::Instrumentation.explaining(io: IO::Memory.new) do
+          trace_a = OperationCr::Instrumentation::Trace.new(
+            operation_class: TraceGreet,
+            params: {:who => "fiber-A"},
+          )
+          OperationCr::Instrumentation.push(trace_a)
+          go_a.send(nil) # tell B it may push now
+          go_b.receive   # wait until B has pushed
+          # With class-level @@stack, this would be B's trace.
+          observed = OperationCr::Instrumentation.current_trace.as(OperationCr::Instrumentation::Trace)
+          OperationCr::Instrumentation.pop
+          done_a.send(observed)
+        end
+      end
+
+      spawn do
+        OperationCr::Instrumentation.explaining(io: IO::Memory.new) do
+          go_a.receive # wait until A has pushed
+          trace_b = OperationCr::Instrumentation::Trace.new(
+            operation_class: TraceAdd,
+            params: {:who => "fiber-B"},
+          )
+          OperationCr::Instrumentation.push(trace_b)
+          observed = OperationCr::Instrumentation.current_trace.as(OperationCr::Instrumentation::Trace)
+          OperationCr::Instrumentation.pop
+          go_b.send(nil) # release A
+          done_b.send(observed)
+        end
+      end
+
+      observed_a = done_a.receive
+      observed_b = done_b.receive
+
+      observed_a.params[:who].should eq("fiber-A")
+      observed_b.params[:who].should eq("fiber-B")
+    ensure
+      OperationCr::Instrumentation.output = STDOUT
+      OperationCr::Instrumentation.clear!
+    end
   end
 end

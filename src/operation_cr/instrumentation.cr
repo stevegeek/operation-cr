@@ -23,6 +23,23 @@ module OperationCr
     # atomic, so this still assumes the runtime's MT scheduler does not
     # preempt mid-`[]=` — which matches Crystal 1.x's cooperative model.
     @@stacks = {} of UInt64 => Array(Trace)
+
+    # Module-level destination for trace output. Unlike `@@stacks`, this
+    # is a single class variable shared by all fibers — it is **not**
+    # fiber-keyed.
+    #
+    # Concurrent `.explain(io: io)` / `.explaining(io: io)` calls are
+    # safe because `explaining` snapshots `output` into a local
+    # `target` IO before yielding, so each fiber writes to its own IO
+    # regardless of subsequent setter calls. However, code that reads
+    # `OperationCr::Instrumentation.output` directly from multiple
+    # fibers races against any concurrent setter — the read may observe
+    # a value written by another fiber.
+    #
+    # Recommended: pass `io:` to `.explain` / `.explaining` rather than
+    # mutating the singleton. Reserve direct `output =` for process-wide
+    # setup (test harnesses, single-threaded scripts) where no other
+    # fiber is concurrently reading or writing.
     class_property output : IO = STDOUT
 
     private def self.current_stack : Array(Trace)
