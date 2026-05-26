@@ -4,11 +4,13 @@ A small Crystal shard for building **typed command objects** — classes with a
 typed constructor (from `param` / `positional_param` macros) and a single
 `perform` method whose return value is returned verbatim from `.call`.
 
-Around that core sit four extensions:
+Around that core sit five extensions:
 
 - **`.with(...)`** — partial application that preserves types and validates
   kwarg keys at compile time (typo → compile error at *your* call site).
 - **`.then(NextOp) { |r| {...} }`** — linear composition into a `Chain`.
+- **`OperationCr::Pipeline`** — declarative `step Op` DSL with auto-merging
+  NamedTuple context, `on_failure` and `before_step` hooks.
 - **`.curry`** — one-arg-at-a-time application.
 - **`.explain(...)`** — STDOUT (or any IO) tracer that prints an ASCII tree
   of nested operation calls with timings.
@@ -21,16 +23,18 @@ trying to:
 
 - No `Result(T)` / `Success` / `Failure` type. `perform` returns whatever
   you want; if it raises, the exception propagates uncaught.
-- No `halt` / `abort` semantics. The only way to stop a `Chain` mid-flight
-  is `raise` from a step.
+- No `halt` / `abort` semantics. The only way to stop a `Chain` or
+  `Pipeline` mid-flight is `raise` from a step.
 - No transactions / around hooks. `before_execute` / `after_execute` are
   pre/post-only — there's no `around { |&| db.transaction { yield } }`.
-- No step DSL. The chain is built by Crystal-level `.then` calls, not a
-  declarative `step :validate, :persist` list.
-- No exception swallowing — by design. Exceptions propagate.
+  (A `Pipeline` does have a `before_step` hook for per-step side effects,
+  but no around-hook.)
+- No exception swallowing — by design. Exceptions propagate or are caught
+  by an explicit `on_failure` handler in a `Pipeline`.
 
 What you get is a typed-constructor + partial-application + linear-pipeline
-+ curry shard with a focus on **compile-time error messages at the call site**.
++ declarative-DSL + curry shard with a focus on **compile-time error
+messages at the call site**.
 
 ## Installation
 
@@ -114,6 +118,75 @@ chain.call(2, 3, multiplier: 10)
 `Chain` also supports `.with` for partial application of the head op's args
 (positional + keyword), with the same compile-time key validation.
 
+### Declarative pipelines — `OperationCr::Pipeline`
+
+For workflows of 3+ steps with hooks between them, `Pipeline` is more
+declarative than `.then` chaining. Subclass `OperationCr::Pipeline`, list
+your steps with `step Op`, and call it with `.call(**initial_context)`:
+
+```crystal
+class PublishPipeline < OperationCr::Pipeline
+  step CloneRepo        # returns {working_tree:, commit_sha:}
+  step ParseShardYml    # needs {working_tree:}, returns {version:}
+  step BuildTarball     # needs {working_tree:}, returns {bytes:}
+  step HashBytes        # needs {bytes:}, returns {sha256:, size:}
+  step PersistVersion   # needs {version:, sha256:, size:, ...}
+
+  before_step do |ctx, step_name|
+    # Per-step side effect: status writes, logging, instrumentation
+    ctx[:job].as(PublishJob).update(status: STEP_STATUS[step_name])
+  end
+
+  on_failure do |ex, step_name|
+    # Exception-based; raise to propagate, return value to replace result
+    Log.error(exception: ex) { "pipeline failed at #{step_name}" }
+    nil
+  end
+end
+
+PublishPipeline.call(
+  job:      job,
+  repo_url: "https://...",
+  git_ref:  "main",
+)
+# => {job: ..., repo_url: ..., git_ref: ..., working_tree: ...,
+#     commit_sha: ..., version: ..., bytes: ..., sha256: ..., size: ...,
+#     package_version: ...}
+```
+
+**Context model.** The initial kwargs to `.call` form a `NamedTuple`
+context. Each step's `perform` must return a `NamedTuple` (use
+`NamedTuple.new` for void steps); that tuple is merged into the context.
+Subsequent steps slice their `param` kwargs from the merged context. A
+step requesting a key that no prior step has added is a compile error.
+
+**Failure handling** is exception-based. Without `on_failure`, exceptions
+propagate out of `.call`. With it, the block receives the exception and
+the step's name (Symbol); its return value becomes the pipeline's return.
+
+**Step naming.** `step Op` derives the step name from the operation's
+class basename (`Publish::Operations::CloneRepo` → `:clone_repo`). Use
+`step :name, Op` for an explicit name passed to `on_failure` / `before_step`.
+
+**Compile-time guards:**
+
+- Subclassing a `Pipeline` subclass is rejected — the per-subclass step
+  accumulator wouldn't carry parent steps and hooks would silently drop.
+  Subclass `OperationCr::Pipeline` directly.
+- Step operations using `positional_param` are rejected — pipelines pass
+  kwargs only.
+- Duplicate `on_failure` or `before_step` definitions in one Pipeline
+  subclass are rejected (would silently overwrite).
+
+**Introspection.** `MyPipeline.step_names` returns the ordered list of
+step names — useful for diagnostics, status-table validation, or
+generating documentation.
+
+**Pipeline vs `.then` chain.** `.then` is good for 2-3 operations
+composed dynamically with custom kwarg mapping. `Pipeline` is better for
+larger workflows where you want declarative step lists, hooks between
+steps, and centralised failure handling.
+
 ### Currying — `.curry`
 
 Consume one arg at a time. Each step returns either a new `Curried` or —
@@ -168,7 +241,7 @@ call    -> before_execute  # deferred, on .call
 
 ## Examples
 
-The `examples/` directory has end-to-end samples for every feature:
+The `examples/` directory has end-to-end samples for most features:
 
 - `examples/hello.cr` — minimal kwarg-only operation
 - `examples/positional.cr` — positional + keyword + defaults + `.with`
@@ -177,10 +250,15 @@ The `examples/` directory has end-to-end samples for every feature:
 - `examples/should_fail_*.cr` — compile-error documentation (typo'd kwarg,
   missing required param, bad positional order)
 
+For pipeline-style composition with `step` + hooks, see the spec file
+`spec/pipeline_spec.cr` which exercises every feature (named steps,
+`on_failure`, `before_step`, empty pipelines, duplicate-step naming,
+context merging).
+
 ## Development
 
 ```bash
-script/cr spec               # run the spec suite (47+ examples)
+script/cr spec               # run the spec suite (62 examples)
 bin/ameba src/ spec/ examples/  # lint (clean baseline)
 ```
 
