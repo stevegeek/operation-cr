@@ -241,19 +241,16 @@ call    -> before_execute  # deferred, on .call
 
 ## Examples
 
-The `examples/` directory has end-to-end samples for most features:
+The `examples/` directory has end-to-end samples for every feature:
 
 - `examples/hello.cr` — minimal kwarg-only operation
 - `examples/positional.cr` — positional + keyword + defaults + `.with`
 - `examples/composition.cr` — two/three-op chains, block-only transforms
+- `examples/pipeline.cr` — declarative `Pipeline` with `step`, `before_step`,
+  `on_failure`, named steps, context merging, and unit-testable ops
 - `examples/kitchen_sink.cr` — every feature in one file
 - `examples/should_fail_*.cr` — compile-error documentation (typo'd kwarg,
   missing required param, bad positional order)
-
-For pipeline-style composition with `step` + hooks, see the spec file
-`spec/pipeline_spec.cr` which exercises every feature (named steps,
-`on_failure`, `before_step`, empty pipelines, duplicate-step naming,
-context merging).
 
 ## Development
 
