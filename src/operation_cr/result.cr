@@ -200,7 +200,16 @@ module OperationCr
   # `Success(NamedTuple)` merges the unwrapped NamedTuple. Only the
   # `Success` case needs an overload — `Pipeline` returns early on
   # `Failure`, so `step_value` never sees one.
-  def self.step_value(result : Success(T)) : T forall T
+  #
+  # The payload is restricted to `NamedTuple` for the same load-bearing
+  # reason the core overload is (see `step_value.cr`): a step returning
+  # `Success(Int32)` must report "expected argument #1 to
+  # 'OperationCr.step_value' to be NamedTuple(T) or
+  # OperationCr::Success(NamedTuple(T)), not OperationCr::Success(Int32)"
+  # at the pipeline, naming this boundary and the step's own return value,
+  # rather than failing deep inside `NamedTuple#merge`. `Success(T)` with a
+  # free `T` accepts anything and regresses exactly that.
+  def self.step_value(result : Success(NamedTuple))
     result.value
   end
 end

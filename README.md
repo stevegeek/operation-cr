@@ -477,7 +477,8 @@ The `examples/` directory has end-to-end samples for every feature:
 - `examples/kitchen_sink.cr` — every feature in one file
 - `examples/should_fail_*.cr` — compile-error documentation (typo'd kwarg,
   missing required param, bad positional order, non-exhaustive `case/in`
-  over a Result, duplicate `on_step_failure`)
+  over a Result, duplicate `on_step_failure`, a step returning a bare value
+  inside a `Success`)
 
 ## Development
 
