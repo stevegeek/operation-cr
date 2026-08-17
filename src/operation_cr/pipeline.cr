@@ -8,9 +8,15 @@ module OperationCr
   # contribute to context (pure side-effect operations), return
   # `NamedTuple.new`.
   #
-  # Failure handling is exception-based (matching Crystal's idioms). Define
-  # `on_failure` to catch any exception raised by a step and translate it —
-  # the handler's return value becomes the pipeline's return value.
+  # Failure handling is exception-based by default (matching Crystal's
+  # idioms). Define `on_failure` to catch any exception raised by a step and
+  # translate it — the handler's return value becomes the pipeline's return
+  # value.
+  #
+  # With the opt-in Result module (`require "operation_cr/result"`) a step
+  # may instead *return* an `OperationCr::Failure`, which stops the pipeline
+  # and is handled by the separate `on_step_failure` hook. See
+  # `__build_pipeline_call` and `on_step_failure` below.
   #
   # ```
   # class MyPipeline < OperationCr::Pipeline
@@ -39,13 +45,34 @@ module OperationCr
   #
   # ## Step return values
   #
-  # `step Op` requires `Op#perform` to return a `NamedTuple`. For void
-  # operations that don't contribute to context, return `NamedTuple.new`.
-  # Bare-value returns (`String`, `Int32`, etc.) are not compatible — wrap
-  # in a single-key NamedTuple at the operation boundary.
+  # `step Op` requires `Op#perform` to return a `NamedTuple` — or, with the
+  # opt-in Result module, a `Success(NamedTuple) | Failure`, whose Success
+  # payload is unwrapped before merging. For void operations that don't
+  # contribute to context, return `NamedTuple.new`. Bare-value returns
+  # (`String`, `Int32`, etc.) are not compatible — wrap in a single-key
+  # NamedTuple at the operation boundary.
   #
   # Key collisions: if two steps return the same key, the later step's
   # value wins (standard `NamedTuple#merge` semantics).
+  #
+  # A returned `Failure` stops the pipeline and is tagged with the failing
+  # step's name, readable as `failure.step`. That is what tells two steps
+  # returning the same code apart, and it is set whether or not the
+  # pipeline defines `on_step_failure`. An already-tagged `Failure` keeps
+  # its tag, so a nested pipeline's attribution survives.
+  #
+  # ## Known limitation: a step that can only fail
+  #
+  # A step whose `perform` type is exactly `Failure` — never `Success` —
+  # types the context that follows it as `NoReturn`, because every path
+  # through that step short-circuits. Every later step's context
+  # extraction then type-checks vacuously, which silently disables the
+  # compile-time missing-key check for the rest of the pipeline.
+  #
+  # The realistic `Success(NamedTuple) | Failure` shape is unaffected: the
+  # Success branch keeps the context a real NamedTuple and the key check
+  # keeps working. A step that can only ever fail is a pipeline that can
+  # only ever fail, so this is not worth contorting the macro for.
   #
   # ## Step operations
   #
@@ -75,6 +102,8 @@ module OperationCr
       HAS_FAILURE_HANDLER = [false]
       # Set to true if the subclass defines a `before_step` hook.
       HAS_BEFORE_STEP_HOOK = [false]
+      # Set to true if the subclass defines an `on_step_failure` handler.
+      HAS_STEP_FAILURE_HANDLER = [false]
 
       macro finished
         __build_pipeline_call
@@ -111,6 +140,40 @@ module OperationCr
 
       private def self.__pipeline_on_failure(%ex : ::Exception, %step_name : ::Symbol)
         {{ block.args[0] }} = %ex
+        {{ block.args[1] }} = %step_name
+        {{ block.body }}
+      end
+    end
+
+    # Define a handler for a step that returns an `OperationCr::Failure`
+    # (the opt-in Result module — `require "operation_cr/result"`).
+    #
+    # The block receives the `Failure` and the step's name (Symbol); its
+    # return value becomes the pipeline's return value. Without it, the
+    # `Failure` itself is returned.
+    #
+    # This is deliberately separate from `on_failure`, which is
+    # exception-based. A Result failure is an expected outcome the step
+    # chose to return, not a raised exception, and the two carry different
+    # payloads (`OperationCr::Failure` vs `Exception`). Routing one into
+    # the other would force a fake exception on one handler and a lie in
+    # the other's signature. A pipeline may define both.
+    #
+    # The handler runs *outside* the `begin`/`rescue` that `on_failure`
+    # protects, so an exception raised inside it propagates to the caller
+    # unchanged. It is not re-routed to `on_failure`, which would report it
+    # as the step raising, under the step's own name.
+    #
+    # Calling `on_step_failure` more than once in a single Pipeline
+    # subclass is rejected at compile time.
+    macro on_step_failure(&block)
+      {% if HAS_STEP_FAILURE_HANDLER[0] %}
+        {% raise "#{@type}: on_step_failure may only be defined once per pipeline. The second definition would silently overwrite the first." %}
+      {% end %}
+      {% HAS_STEP_FAILURE_HANDLER[0] = true %}
+
+      private def self.__pipeline_on_step_failure(%failure : ::OperationCr::Failure, %step_name : ::Symbol)
+        {{ block.args[0] }} = %failure
         {{ block.args[1] }} = %step_name
         {{ block.body }}
       end
@@ -156,7 +219,34 @@ module OperationCr
     # (verified on Crystal 1.20.1) — distinct vars per step are unnecessary.
     #
     # Operations must return a `NamedTuple` (use `NamedTuple.new` for void
-    # operations). Positional params are rejected with a clear compile error.
+    # operations), or — with the opt-in Result module — a
+    # `Success(NamedTuple) | Failure`. Positional params are rejected with
+    # a clear compile error.
+    #
+    # ## What the `rescue` covers
+    #
+    # The `begin`/`rescue` wraps the `before_step` hook and the step's own
+    # `.call`, and nothing else. The `Failure` guard, `on_step_failure` and
+    # the context `merge` all run after it. That placement is the point: a
+    # handler invoked from inside the protected body would have its own
+    # exceptions caught by `on_failure` and reported as the step raising.
+    #
+    # ## Result short-circuiting
+    #
+    # When `operation_cr/result` is loaded, each step is followed by a
+    # `is_a?(Failure)` guard that returns early. The guard is emitted
+    # unconditionally for every step, including steps that can never
+    # fail: Crystal prunes a statically-unreachable `is_a?` branch, so a
+    # pipeline whose steps all return plain NamedTuples keeps its exact
+    # pre-0.3.0 return type (verified by a `typeof` assertion in
+    # `spec/pipeline_result_spec.cr`). Short-circuiting therefore needs no
+    # opt-in macro.
+    #
+    # The guard is skipped entirely when `OperationCr::Failure` is not
+    # defined — otherwise the emitted `is_a?(::OperationCr::Failure)` would
+    # name a constant that does not exist, and every plain pipeline in a
+    # program that never opted in would fail to compile. `macro finished`
+    # runs after all `require`s, so this check sees the final program.
     macro __build_pipeline_call
       # Validate that no step operation uses positional_param.
       {% for step in PIPELINE_STEPS %}
@@ -164,6 +254,12 @@ module OperationCr
         {% if op_resolved.constant("POSITIONAL_PARAMS").size > 0 %}
           {% raise "Pipeline step #{op_resolved} declares positional_param; pipelines pass kwargs only. Change to `param :name, T` (kwarg form)." %}
         {% end %}
+      {% end %}
+
+      {% result_module_loaded = ::OperationCr.has_constant?("Failure") %}
+
+      {% if HAS_STEP_FAILURE_HANDLER[0] && !result_module_loaded %}
+        {% raise "#{@type}: on_step_failure needs the opt-in Result module, otherwise no step can ever return a Failure. Add: require \"operation_cr/result\"." %}
       {% end %}
 
       def self.call(**initial_context)
@@ -174,17 +270,16 @@ module OperationCr
           {% op_resolved = op.resolve %}
           {% kw_params = op_resolved.constant("KW_PARAMS") %}
 
-          %ctx = begin
+          %step_result = begin
             {% if HAS_BEFORE_STEP_HOOK[0] %}
               __pipeline_before_step(%ctx, :{{ step[:name].id }})
             {% end %}
 
-            %step_result = {{ op }}.call(
+            {{ op }}.call(
               {% for key in kw_params.keys %}
                 {{ key.id }}: %ctx[{{ key }}],
               {% end %}
             )
-            %ctx.merge(%step_result)
           rescue %ex
             {% if HAS_FAILURE_HANDLER[0] %}
               return __pipeline_on_failure(%ex, :{{ step[:name].id }})
@@ -192,6 +287,19 @@ module OperationCr
               raise %ex
             {% end %}
           end
+
+          {% if result_module_loaded %}
+            if %step_result.is_a?(::OperationCr::Failure)
+              %step_failure = %step_result.at_step(:{{ step[:name].id }})
+              {% if HAS_STEP_FAILURE_HANDLER[0] %}
+                return __pipeline_on_step_failure(%step_failure, :{{ step[:name].id }})
+              {% else %}
+                return %step_failure
+              {% end %}
+            end
+          {% end %}
+
+          %ctx = %ctx.merge(::OperationCr.step_value(%step_result))
         {% end %}
 
         %ctx

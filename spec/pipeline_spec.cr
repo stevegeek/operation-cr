@@ -132,7 +132,7 @@ describe OperationCr::Pipeline do
     it "threads context through each step, merging results" do
       result = PipelineSpec::HappyPipeline.call(name: "World", greeting: "Hello")
       result[:message].should eq "HELLO, WORLD!!!!"
-      result[:shouted].should eq true
+      result[:shouted].should be_true
       result[:name].should eq "World"
       result[:greeting].should eq "Hello"
     end

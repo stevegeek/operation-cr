@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Runs ameba, building its binary first if it is not there yet.
+#
+# ameba is pinned to a commit rather than a release because its latest release
+# (1.6.4) does not compile on Crystal 1.21 — see shard.yml. That commit has no
+# postinstall hook, so `shards install` leaves no binary behind and it has to
+# be built here. The build is slow but cached: bin/ is gitignored, so this is
+# a one-off per checkout.
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+if [ ! -x bin/ameba ]; then
+  if [ ! -d lib/ameba ]; then
+    echo "lib/ameba missing — run 'shards install' first" >&2
+    exit 1
+  fi
+  echo "building bin/ameba (one-off)…" >&2
+  mkdir -p bin
+  script/cr build lib/ameba/src/cli.cr -o bin/ameba
+fi
+
+if [ "$#" -eq 0 ]; then
+  set -- src/ spec/ examples/
+fi
+
+exec bin/ameba "$@"

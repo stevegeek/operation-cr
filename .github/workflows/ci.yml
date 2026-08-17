@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  spec:
+    # Two versions on purpose: the floor declared in shard.yml, and whatever
+    # is current. The shard leans on compile-time behaviour that the compiler
+    # is free to change between releases — exhaustiveness of `case/in` over a
+    # union, pruning of a statically-unreachable branch, overload resolution
+    # against `Success(NamedTuple)`. A green suite on one version says nothing
+    # about the other.
+    strategy:
+      fail-fast: false
+      matrix:
+        crystal: ["1.20.1", latest]
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: ${{ matrix.crystal }}
+
+      - name: Install dependencies
+        run: shards install --skip-postinstall --skip-executables
+
+      - name: Check formatting
+        run: crystal tool format --check src/ spec/ examples/
+
+      - name: Run specs
+        run: crystal spec
+
+      # The compile-error examples are the design's load-bearing guarantees:
+      # that a non-exhaustive `case/in` over Success|Failure does not compile,
+      # that a Success payload which is not a NamedTuple names step_value
+      # rather than failing deep inside NamedTuple#merge, and that the
+      # define-twice hooks are rejected. A spec cannot cover any of it — a
+      # spec that fails to compile takes the whole suite with it — so without
+      # this step nothing checks them.
+      - name: Check the compile-error examples
+        run: script/check-compile-errors
+
+      - name: Compile the runnable examples
+        run: |
+          status=0
+          for file in examples/*.cr; do
+            case "$file" in
+              examples/should_fail_*) continue ;;
+            esac
+            if ! crystal build --no-codegen "$file"; then
+              echo "FAIL $file did not compile"
+              status=1
+            fi
+          done
+          exit $status
+
+  # Its own job, on one Crystal only: ameba has to be compiled from source
+  # (the pinned commit ships no postinstall hook), which is slow enough that
+  # doing it once per matrix leg would dominate the run. Lint findings do not
+  # differ per compiler version.
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: latest
+
+      - name: Install dependencies
+        run: shards install --skip-postinstall --skip-executables
+
+      - name: Cache the ameba binary
+        uses: actions/cache@v4
+        with:
+          path: bin/ameba
+          key: ameba-${{ runner.os }}-${{ hashFiles('shard.lock') }}
+
+      - name: Lint
+        run: script/lint
