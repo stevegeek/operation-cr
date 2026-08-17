@@ -97,6 +97,23 @@ class PipelineResultSpec::BothHandlersPipeline < OperationCr::Pipeline
   end
 end
 
+# `on_step_failure` must run OUTSIDE the region `on_failure` protects.
+# Otherwise an exception raised by the step-failure handler is caught by
+# `on_failure` and misreported as the *step* raising, under the step's name.
+class PipelineResultSpec::HandlerRaisesPipeline < OperationCr::Pipeline
+  step ValidateQuantity
+  step :kaboom, Explodes
+
+  on_failure do |ex, step_name|
+    {kind: :exception, message: ex.message, failed_at: step_name}
+  end
+
+  on_step_failure do |failure, step_name|
+    raise ArgumentError.new("boom from on_step_failure") if failure.codes.includes?(:not_positive)
+    {kind: :result_failure, message: failure.first_error.code.to_s, failed_at: step_name}
+  end
+end
+
 class PipelineResultSpec::PlainPipeline < OperationCr::Pipeline
   step PlainA
   step PlainB
@@ -199,6 +216,21 @@ describe "OperationCr::Pipeline with Results" do
       result[:kind].should eq :exception
       result[:message].should eq "boom from Explodes"
       result[:failed_at].should eq :kaboom
+    end
+
+    # The handler runs outside the begin/rescue that on_failure protects, so
+    # its own exception is the caller's problem, not a fake "the step raised".
+    it "propagates an exception raised inside on_step_failure" do
+      expect_raises(ArgumentError, "boom from on_step_failure") do
+        PipelineResultSpec::HandlerRaisesPipeline.call(quantity: 0)
+      end
+    end
+
+    it "still routes a step's own exception to on_failure in the same pipeline" do
+      result = PipelineResultSpec::HandlerRaisesPipeline.call(quantity: 5)
+      result[:kind]?.should eq :exception
+      result[:message]?.should eq "boom from Explodes"
+      result[:failed_at]?.should eq :kaboom
     end
   end
 

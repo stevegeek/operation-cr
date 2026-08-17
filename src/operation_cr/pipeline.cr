@@ -140,6 +140,11 @@ module OperationCr
     # the other would force a fake exception on one handler and a lie in
     # the other's signature. A pipeline may define both.
     #
+    # The handler runs *outside* the `begin`/`rescue` that `on_failure`
+    # protects, so an exception raised inside it propagates to the caller
+    # unchanged. It is not re-routed to `on_failure`, which would report it
+    # as the step raising, under the step's own name.
+    #
     # Calling `on_step_failure` more than once in a single Pipeline
     # subclass is rejected at compile time.
     macro on_step_failure(&block)
@@ -199,6 +204,14 @@ module OperationCr
     # `Success(NamedTuple) | Failure`. Positional params are rejected with
     # a clear compile error.
     #
+    # ## What the `rescue` covers
+    #
+    # The `begin`/`rescue` wraps the `before_step` hook and the step's own
+    # `.call`, and nothing else. The `Failure` guard, `on_step_failure` and
+    # the context `merge` all run after it. That placement is the point: a
+    # handler invoked from inside the protected body would have its own
+    # exceptions caught by `on_failure` and reported as the step raising.
+    #
     # ## Result short-circuiting
     #
     # When `operation_cr/result` is loaded, each step is followed by a
@@ -238,28 +251,16 @@ module OperationCr
           {% op_resolved = op.resolve %}
           {% kw_params = op_resolved.constant("KW_PARAMS") %}
 
-          %ctx = begin
+          %step_result = begin
             {% if HAS_BEFORE_STEP_HOOK[0] %}
               __pipeline_before_step(%ctx, :{{ step[:name].id }})
             {% end %}
 
-            %step_result = {{ op }}.call(
+            {{ op }}.call(
               {% for key in kw_params.keys %}
                 {{ key.id }}: %ctx[{{ key }}],
               {% end %}
             )
-
-            {% if result_module_loaded %}
-              if %step_result.is_a?(::OperationCr::Failure)
-                {% if HAS_STEP_FAILURE_HANDLER[0] %}
-                  return __pipeline_on_step_failure(%step_result, :{{ step[:name].id }})
-                {% else %}
-                  return %step_result
-                {% end %}
-              end
-            {% end %}
-
-            %ctx.merge(::OperationCr.step_value(%step_result))
           rescue %ex
             {% if HAS_FAILURE_HANDLER[0] %}
               return __pipeline_on_failure(%ex, :{{ step[:name].id }})
@@ -267,6 +268,18 @@ module OperationCr
               raise %ex
             {% end %}
           end
+
+          {% if result_module_loaded %}
+            if %step_result.is_a?(::OperationCr::Failure)
+              {% if HAS_STEP_FAILURE_HANDLER[0] %}
+                return __pipeline_on_step_failure(%step_result, :{{ step[:name].id }})
+              {% else %}
+                return %step_result
+              {% end %}
+            end
+          {% end %}
+
+          %ctx = %ctx.merge(::OperationCr.step_value(%step_result))
         {% end %}
 
         %ctx
