@@ -131,7 +131,9 @@ bare = BareOrderPipeline.call(product_id: 7, quantity: 1)
 # compiling. In the success branch the context is a plain NamedTuple.
 case bare
 in OperationCr::Failure
-  puts "  → failed: #{bare.first_error.code} (#{bare.first_error.detail})"
+  # The pipeline tags the Failure with the step that produced it, so the
+  # origin is available without an `on_step_failure` handler.
+  puts "  → failed at #{bare.step}: #{bare.first_error.code} (#{bare.first_error.detail})"
 in NamedTuple
   puts "  → total #{bare[:total_cents]}¢"
 end
