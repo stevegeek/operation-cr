@@ -1,3 +1,6 @@
+# script/check-compile-errors asserts this file fails to compile with:
+# expect-error: missing argument: name
+#
 require "../src/operation_cr"
 
 class GreetUser < OperationCr::Operation

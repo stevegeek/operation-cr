@@ -1,3 +1,6 @@
+# script/check-compile-errors asserts this file fails to compile with:
+# expect-error: expected argument #1 to 'OperationCr.step_value' to be NamedTuple(T) or OperationCr::Success(NamedTuple(T)), not OperationCr::Success(Int32)
+#
 require "../src/operation_cr"
 require "../src/operation_cr/result"
 

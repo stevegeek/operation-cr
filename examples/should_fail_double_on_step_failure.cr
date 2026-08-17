@@ -1,3 +1,6 @@
+# script/check-compile-errors asserts this file fails to compile with:
+# expect-error: DoubleHandlerPipeline: on_step_failure may only be defined once per pipeline.
+#
 require "../src/operation_cr"
 require "../src/operation_cr/result"
 

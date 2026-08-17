@@ -1,3 +1,7 @@
+# script/check-compile-errors asserts this file fails to compile with:
+# expect-error: case is not exhaustive.
+# expect-error: - OperationCr::Failure
+#
 require "../src/operation_cr"
 require "../src/operation_cr/result"
 

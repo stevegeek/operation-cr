@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# Compiles every examples/should_fail_*.cr and asserts that each one fails,
+# with the message that file documents.
+#
+# The compile errors are half of what this shard promises -- a typo'd kwarg,
+# a missing param, a non-exhaustive case over a Result and a step returning
+# a bare value are all supposed to be caught before the program runs. The
+# spec suite cannot cover them, because a spec that fails to compile takes
+# the whole suite with it. Until this script existed the examples were
+# checked by hand, so nothing noticed when a guarantee stopped holding.
+#
+# Each example declares its expectation in `# expect-error:` comment lines,
+# one per substring that must appear in the compiler's output. A file with
+# no such line fails the run, so a new should_fail example cannot slip in
+# unchecked.
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+status=0
+checked=0
+
+for file in examples/should_fail_*.cr; do
+  checked=$((checked + 1))
+
+  expectations=$(sed -n 's/^# expect-error: //p' "$file")
+  if [ -z "$expectations" ]; then
+    echo "FAIL $file"
+    echo "     no '# expect-error: <substring>' line; add one naming the error this file documents"
+    status=1
+    continue
+  fi
+
+  if output=$(script/cr build --no-codegen "$file" 2>&1); then
+    echo "FAIL $file"
+    echo "     compiled successfully; it is supposed to be a compile error"
+    status=1
+    continue
+  fi
+
+  missing=""
+  while IFS= read -r expectation; do
+    [ -z "$expectation" ] && continue
+    if ! printf '%s' "$output" | grep -qF -- "$expectation"; then
+      missing="${missing}     expected in the error: ${expectation}"$'\n'
+    fi
+  done <<< "$expectations"
+
+  if [ -n "$missing" ]; then
+    echo "FAIL $file"
+    printf '%s' "$missing"
+    echo "     got:"
+    printf '%s\n' "$output" | sed 's/^/       /'
+    status=1
+    continue
+  fi
+
+  echo "ok   $file"
+done
+
+echo
+if [ "$status" -eq 0 ]; then
+  echo "$checked compile-error examples, all failing as documented"
+else
+  echo "$checked compile-error examples, some not failing as documented"
+fi
+
+exit "$status"

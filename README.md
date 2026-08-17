@@ -483,16 +483,25 @@ The `examples/` directory has end-to-end samples for every feature:
 ## Development
 
 ```bash
-script/cr spec               # run the spec suite (106 examples)
+script/cr spec                  # run the spec suite (121 examples)
+script/check-compile-errors     # run the compile-error examples
 bin/ameba src/ spec/ examples/  # lint (clean baseline)
 ```
 
-The `examples/should_fail_*.cr` files are compile-error documentation and
-are checked by hand:
+The `examples/should_fail_*.cr` files are compile-error documentation: each
+one must fail to compile, with the message it documents. The spec suite
+cannot cover that — a spec that fails to compile takes the suite with it —
+so `script/check-compile-errors` builds each with `--no-codegen` and checks
+the compiler's output against the `# expect-error:` lines at the top of the
+file:
 
-```bash
-script/cr build --no-codegen examples/should_fail_typo.cr  # must fail
+```crystal
+# script/check-compile-errors asserts this file fails to compile with:
+# expect-error: unknown param `grete` for GreetUser. Valid params: name, greeting
 ```
+
+A new `should_fail_*.cr` without such a line fails the run, so it cannot go
+unchecked.
 
 ## License
 
