@@ -10,10 +10,14 @@ Around that core sit five extensions:
   kwarg keys at compile time (typo → compile error at *your* call site).
 - **`.then(NextOp) { |r| {...} }`** — linear composition into a `Chain`.
 - **`OperationCr::Pipeline`** — declarative `step Op` DSL with auto-merging
-  NamedTuple context, `on_failure` and `before_step` hooks.
+  NamedTuple context, `on_failure`, `on_step_failure` and `before_step` hooks.
 - **`.curry`** — one-arg-at-a-time application.
 - **`.explain(...)`** — STDOUT (or any IO) tracer that prints an ASCII tree
   of nested operation calls with timings.
+
+Plus one **opt-in** module — `require "operation_cr/result"` — that adds a
+`Success(T) | Failure` type, `Chain#and_then`, and `Pipeline`
+short-circuiting. See [Results (opt-in)](#results-opt-in).
 
 ## What this is NOT
 
@@ -21,16 +25,28 @@ Around that core sit five extensions:
 you're looking for those features, this shard does not have them and is not
 trying to:
 
-- No `Result(T)` / `Success` / `Failure` type. `perform` returns whatever
-  you want; if it raises, the exception propagates uncaught.
-- No `halt` / `abort` semantics. The only way to stop a `Chain` or
-  `Pipeline` mid-flight is `raise` from a step.
+- **The core has no `Result(T)` / `Success` / `Failure` type.** `perform`
+  returns whatever you want; if it raises, the exception propagates
+  uncaught. Since 0.3.0 there *is* a Result type, but it sits outside the
+  core and you opt in per project with an explicit require:
+  `src/operation_cr.cr` does not require it, and a program that never
+  requires it is unaffected down to its inferred return types. See
+  [Results (opt-in)](#results-opt-in). Even opted in, what you get is one
+  union type plus `and_then` / `map` — not a monad library. No `Maybe`, no
+  do-notation, no transformers.
+- No `halt` / `abort` semantics. Without the Result module, the only way to
+  stop a `Chain` or `Pipeline` mid-flight is `raise` from a step. With it,
+  returning a `Failure` stops a `Pipeline` and skips the rest of an
+  `and_then` chain — but that is a value a step returns, not a control-flow
+  keyword you can call from anywhere.
 - No transactions / around hooks. `before_execute` / `after_execute` are
   pre/post-only — there's no `around { |&| db.transaction { yield } }`.
   (A `Pipeline` does have a `before_step` hook for per-step side effects,
   but no around-hook.)
 - No exception swallowing — by design. Exceptions propagate or are caught
-  by an explicit `on_failure` handler in a `Pipeline`.
+  by an explicit `on_failure` handler in a `Pipeline`. A returned `Failure`
+  is not an exception and has its own handler, `on_step_failure`; the two
+  are never conflated.
 
 What you get is a typed-constructor + partial-application + linear-pipeline
 + declarative-DSL + curry shard with a focus on **compile-time error
@@ -118,6 +134,11 @@ chain.call(2, 3, multiplier: 10)
 `Chain` also supports `.with` for partial application of the head op's args
 (positional + keyword), with the same compile-time key validation.
 
+With the opt-in Result module there is also `.and_then`, which unwraps a
+`Success` before calling the block and skips the block entirely on a
+`Failure` — see [Results (opt-in)](#results-opt-in). `.then` is unchanged:
+it always runs its block, on whatever the previous step returned.
+
 ### Declarative pipelines — `OperationCr::Pipeline`
 
 For workflows of 3+ steps with hooks between them, `Pipeline` is more
@@ -164,6 +185,11 @@ step requesting a key that no prior step has added is a compile error.
 propagate out of `.call`. With it, the block receives the exception and
 the step's name (Symbol); its return value becomes the pipeline's return.
 
+For failures that aren't exceptional — invalid input, a declined card —
+the opt-in Result module lets a step *return* a `Failure`, which
+short-circuits the pipeline and can be handled by `on_step_failure`. See
+[Results (opt-in)](#results-opt-in).
+
 **Step naming.** `step Op` derives the step name from the operation's
 class basename (`Publish::Operations::CloneRepo` → `:clone_repo`). Use
 `step :name, Op` for an explicit name passed to `on_failure` / `before_step`.
@@ -175,8 +201,8 @@ class basename (`Publish::Operations::CloneRepo` → `:clone_repo`). Use
   Subclass `OperationCr::Pipeline` directly.
 - Step operations using `positional_param` are rejected — pipelines pass
   kwargs only.
-- Duplicate `on_failure` or `before_step` definitions in one Pipeline
-  subclass are rejected (would silently overwrite).
+- Duplicate `on_failure`, `on_step_failure` or `before_step` definitions in
+  one Pipeline subclass are rejected (would silently overwrite).
 
 **Introspection.** `MyPipeline.step_names` returns the ordered list of
 step names — useful for diagnostics, status-table validation, or
@@ -223,6 +249,185 @@ Nested operation calls are traced as children of the outer one — you get
 the full call tree. Tracing state is fiber-local, so concurrent `.explain`
 calls don't cross-contaminate.
 
+## Results (opt-in)
+
+New in 0.3.0. **The core still has no Result type.** `src/operation_cr.cr`
+does not require this module; you buy in per project:
+
+```crystal
+require "operation_cr"
+require "operation_cr/result"
+```
+
+Requiring it adds `OperationCr::Success(T)`, `OperationCr::Failure` and
+`OperationCr::Error`, adds `and_then` to `Chain`, and teaches `Pipeline` to
+short-circuit. A program that never requires it behaves exactly as it did
+in 0.2.0, down to its inferred return types.
+
+**Why have one at all.** Raising is the right default for the unexpected —
+a dead database, a bug — and it stays the default. It is the wrong shape
+for the *expected* failures of a business operation: invalid input, a card
+declined, a slot already booked. Those are one of the two normal answers,
+and an exception hides them from the type system.
+
+### There is no `Result(T)` type name
+
+Crystal has no generic aliases. `alias Result(T) = Success(T) | Failure`
+does not parse ("expecting token '=', not '('"). So the type is written as
+the union, or aliased per call site:
+
+```crystal
+alias CreateUserResult = OperationCr::Success(User) | OperationCr::Failure
+
+class CreateUser < OperationCr::Operation
+  param email : String
+
+  def perform : CreateUserResult
+    return OperationCr::Failure.new(:invalid, "email") unless email.includes?('@')
+    OperationCr::Success.new(User.new(email))
+  end
+end
+```
+
+An abstract-struct hierarchy (`abstract struct Result(T)` with `Success` /
+`Failure` subclasses) was tried and rejected: it compiles, but the static
+type becomes the abstract parent, `case/in` reports "case is not
+exhaustive. Missing types: Result(Int32)", and you get a shape that looks
+like a monad while giving none of the guarantee. `Failure` is deliberately
+**not** generic — it carries no phantom payload type, so failures from
+differently-typed operations are the same type and combine freely.
+
+### The exhaustiveness guarantee
+
+The union is the whole point:
+
+```crystal
+case result
+in OperationCr::Success
+  # `value` is statically User. Not User?. No unwrap, no raise, no rescue.
+  send_welcome(result.value)
+in OperationCr::Failure
+  render_errors(result.errors)
+end
+```
+
+Delete the `Failure` branch and it is a compile error — "case is not
+exhaustive. Missing types: OperationCr::Failure" (see
+`examples/should_fail_non_exhaustive_result.cr`). An `ok?` / `value!`
+struct gives you neither the typed payload nor the forced branch; that is
+the reason to prefer this.
+
+### API
+
+`OperationCr::Error` — `record Error, code : Symbol, field : String? = nil,
+detail : String? = nil`.
+
+`OperationCr::Success(T)`
+
+| Method | Notes |
+| --- | --- |
+| `#value : T` | The payload. |
+| `#ok? : Bool` | `true`. |
+| `#and_then { \|value\| ... }` | Runs the block on the unwrapped value; the block returns a Result. |
+| `#map { \|value\| ... }` | Transforms the payload, keeps it wrapped. |
+
+`OperationCr::Failure`
+
+| Method | Notes |
+| --- | --- |
+| `.new(errors : Array(Error))` | |
+| `.new(code : Symbol, field : String? = nil, detail : String? = nil)` | Single-error shorthand. |
+| `#errors : Array(Error)` | |
+| `#ok? : Bool` | `false`. |
+| `#and_then { ... }` | Returns self. **The block never runs.** |
+| `#map { ... }` | Returns self. The block never runs. |
+| `#first_error : Error` | |
+| `#codes : Array(Symbol)` | Every error's code, in order. |
+| `#+(other : Failure) : Failure` | Concatenates errors — report all bad inputs at once. |
+
+```crystal
+result = OperationCr::Success.new(4)
+  .and_then { |n| OperationCr::Success.new(n * 2).as(MyResult) }
+  .and_then { |n| OperationCr::Failure.new(:too_big, "n").as(MyResult) }
+  .and_then { |n| OperationCr::Success.new(n + 1000).as(MyResult) } # never runs
+
+result.as(OperationCr::Failure).codes # => [:too_big]
+```
+
+### `Chain#and_then`
+
+`.and_then` is the Result-aware sibling of `.then`. On a `Success` the
+block receives the **unwrapped** payload; on a `Failure` the block does not
+run and the `Failure` becomes the chain's result. `.then`'s semantics are
+untouched — it always runs its block, on the wrapped value.
+
+```crystal
+chain = ParseInt.and_then(Halve) { |n| {n: n} }
+
+chain.call(raw: "10")   # => Success(5)
+chain.call(raw: "oops") # => Failure(:not_a_number) — Halve never runs
+```
+
+Both forms exist (`.and_then(NextOp) { |value| {kwargs} }` and the
+block-only `.and_then { |value| ... }`), as a class-level macro on
+`Operation` to start a chain and as a method on `Chain` to extend one.
+Plain and Result steps mix freely:
+
+```crystal
+Double.then(ParseInt) { |x| {raw: x.to_s} }.and_then(Describe) { |n| {n: n} }
+# call type: String | OperationCr::Failure
+```
+
+On a chain that never carries a Result, `.and_then` degrades to `.then`
+with no `Failure` in the inferred type.
+
+### `Pipeline` short-circuiting
+
+A step may return `Success(NamedTuple) | Failure` instead of a plain
+`NamedTuple`. The unwrapped NamedTuple of a `Success` merges into the
+context as usual; a `Failure` stops the pipeline immediately and becomes
+its return value. Later steps do not run.
+
+```crystal
+class OrderPipeline < OperationCr::Pipeline
+  step ValidateOrder   # returns Success({validated: true}) | Failure
+  step FetchPrice      # returns Success({unit_price_cents: …}) | Failure
+  step ComputeTotal    # plain NamedTuple — unchanged, cannot fail
+
+  on_step_failure do |failure, step_name|
+    Log.warn { "#{step_name}: #{failure.codes.inspect}" }
+    {ok: false, failed_at: step_name, codes: failure.codes}
+  end
+end
+```
+
+`on_step_failure` receives the `Failure` and the failing step's name
+(Symbol); its return value becomes the pipeline's return value. Without
+it, the pipeline returns the `Failure` and the call type is
+`context | OperationCr::Failure` — which the caller then has to handle
+exhaustively.
+
+It is **separate from `on_failure`** on purpose. `on_failure` is for
+exceptions a step raised; `on_step_failure` is for a `Failure` a step
+returned. They carry different payloads and mean different things, so
+routing one into the other would need a fake exception and would make both
+handlers lie about what they receive. A pipeline may define both. Defining
+either twice is a compile error (see
+`examples/should_fail_double_on_step_failure.cr`).
+
+**Short-circuiting is automatic — there is no opt-in macro and no cost to
+pipelines that don't use it.** The guard is emitted for every step, and
+Crystal prunes it where it is statically unreachable, so a pipeline of
+plain steps keeps its exact 0.2.0 return type:
+
+```crystal
+typeof(PlainPipeline.call(a: 1))  # => NamedTuple(a: Int32, b: Int32, c: Int32)
+typeof(ResultPipeline.call(a: 1)) # => NamedTuple(…) | OperationCr::Failure
+```
+
+Both are asserted in `spec/pipeline_result_spec.cr` rather than left to
+inspection.
+
 ## Lifecycle hooks
 
 ```
@@ -248,15 +453,26 @@ The `examples/` directory has end-to-end samples for every feature:
 - `examples/composition.cr` — two/three-op chains, block-only transforms
 - `examples/pipeline.cr` — declarative `Pipeline` with `step`, `before_step`,
   `on_failure`, named steps, context merging, and unit-testable ops
+- `examples/result_pipeline.cr` — the same order flow with the opt-in Result
+  module: failing steps, short-circuiting, `on_step_failure`, exhaustive
+  handling at the call site, and `Chain#and_then`
 - `examples/kitchen_sink.cr` — every feature in one file
 - `examples/should_fail_*.cr` — compile-error documentation (typo'd kwarg,
-  missing required param, bad positional order)
+  missing required param, bad positional order, non-exhaustive `case/in`
+  over a Result, duplicate `on_step_failure`)
 
 ## Development
 
 ```bash
-script/cr spec               # run the spec suite (62 examples)
+script/cr spec               # run the spec suite (106 examples)
 bin/ameba src/ spec/ examples/  # lint (clean baseline)
+```
+
+The `examples/should_fail_*.cr` files are compile-error documentation and
+are checked by hand:
+
+```bash
+script/cr build --no-codegen examples/should_fail_typo.cr  # must fail
 ```
 
 ## License

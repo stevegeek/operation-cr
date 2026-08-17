@@ -1,5 +1,5 @@
 module OperationCr
-  VERSION = "0.2.0"
+  VERSION = "0.3.0"
 end
 
 # Note: `./operation_cr/result` is intentionally NOT required here. The

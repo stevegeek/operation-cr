@@ -1,11 +1,13 @@
 name: operation_cr
-version: 0.2.0
+version: 0.3.0
 
 description: |
   Typed command objects for Crystal. Param macros build a typed
   initializer; .with, .then, .curry, and .explain layer partial
   application, linear composition, currying, and STDOUT tracing
-  on top — all with compile-time kwarg key validation.
+  on top — all with compile-time kwarg key validation. An opt-in
+  require adds a Success(T) | Failure result type with
+  short-circuiting chains and pipelines.
 
 authors:
   - Stephen Ierodiaconou <stevegeek@gmail.com>
