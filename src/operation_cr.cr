@@ -2,6 +2,9 @@ module OperationCr
   VERSION = "0.2.0"
 end
 
+# Note: `./operation_cr/result` is intentionally NOT required here. The
+# Result type is opt-in — see the file's top comment.
+require "./operation_cr/step_value"
 require "./operation_cr/instrumentation"
 require "./operation_cr/operation"
 require "./operation_cr/partially_applied"
