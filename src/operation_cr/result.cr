@@ -112,9 +112,19 @@ module OperationCr
   # generic: it carries no phantom payload type, so failures from
   # differently-typed operations are the same type and combine freely.
   struct Failure
-    getter errors : Array(Error)
+    # Every reason this failed, in order.
+    #
+    # A `Failure` is a value, so it must not share one mutable array with
+    # its copies or with whoever built it. Both routes into `@errors` are
+    # closed: the constructor copies the array it is given, and this getter
+    # copies the array it returns. Mutating what you get back changes
+    # nothing — build a new `Failure`, or combine with `#+`.
+    def errors : Array(Error)
+      @errors.dup
+    end
 
-    def initialize(@errors : Array(Error))
+    def initialize(errors : Array(Error))
+      @errors = errors.dup
     end
 
     def initialize(code : Symbol, field : String? = nil, detail : String? = nil)
@@ -149,7 +159,7 @@ module OperationCr
     # Combines two failures, concatenating their errors. Useful when
     # validating several inputs and reporting all of them at once.
     def +(other : Failure) : Failure
-      Failure.new(@errors + other.errors)
+      Failure.new(@errors + other.@errors)
     end
 
     # :nodoc:

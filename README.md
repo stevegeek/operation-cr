@@ -335,9 +335,9 @@ detail : String? = nil`.
 
 | Method | Notes |
 | --- | --- |
-| `.new(errors : Array(Error))` | |
+| `.new(errors : Array(Error))` | Copies the array. |
 | `.new(code : Symbol, field : String? = nil, detail : String? = nil)` | Single-error shorthand. |
-| `#errors : Array(Error)` | |
+| `#errors : Array(Error)` | A copy. `Failure` is a value type and shares no mutable state with its copies, so mutating what you get back changes nothing. |
 | `#ok? : Bool` | `false`. |
 | `#and_then { ... }` | Returns self. **The block never runs.** |
 | `#map { ... }` | Returns self. The block never runs. |

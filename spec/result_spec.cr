@@ -122,6 +122,32 @@ describe OperationCr::Failure do
     failure.codes.should eq [:a, :b]
   end
 
+  # `Failure` is a value type: copying it must copy the failure, not a
+  # pointer to one shared error array. Both routes into that array are
+  # closed — the constructor argument and the `errors` getter.
+  it "does not share the caller's array" do
+    errors = [OperationCr::Error.new(:a)]
+    failure = OperationCr::Failure.new(errors)
+    errors << OperationCr::Error.new(:injected_via_caller_array)
+    failure.codes.should eq [:a]
+  end
+
+  it "does not hand out the array it holds" do
+    failure = OperationCr::Failure.new([OperationCr::Error.new(:a)])
+    failure.errors << OperationCr::Error.new(:injected_via_getter)
+    failure.codes.should eq [:a]
+  end
+
+  it "keeps a copy of itself independent of both routes" do
+    errors = [OperationCr::Error.new(:a)]
+    fail_a = OperationCr::Failure.new(errors)
+    fail_b = fail_a
+    errors << OperationCr::Error.new(:injected_via_caller_array)
+    fail_b.errors << OperationCr::Error.new(:injected_via_getter)
+    fail_a.codes.should eq [:a]
+    fail_b.codes.should eq [:a]
+  end
+
   it "combines with another failure, concatenating errors" do
     combined = OperationCr::Failure.new(:a, "one") + OperationCr::Failure.new(:b, "two")
     combined.codes.should eq [:a, :b]
