@@ -492,8 +492,17 @@ The `examples/` directory has end-to-end samples for every feature:
 ```bash
 script/cr spec                  # run the spec suite (121 examples)
 script/check-compile-errors     # run the compile-error examples
-bin/ameba src/ spec/ examples/  # lint (clean baseline)
+crystal tool format --check src/ spec/ examples/
 ```
+
+CI runs all three on every push and pull request
+(`.github/workflows/ci.yml`).
+
+`ameba` is deliberately not a development dependency. Its latest release
+(1.6.4) does not compile against Crystal 1.20.1 — `undefined method
+'next_string_array_token' for Crystal::Lexer` — and only an unreleased
+`v1.7.0-dev` tag carries the fix. Add it back when a compatible release
+exists.
 
 The `examples/should_fail_*.cr` files are compile-error documentation: each
 one must fail to compile, with the message it documents. The spec suite
