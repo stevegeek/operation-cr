@@ -117,6 +117,15 @@ describe OperationCr::Failure do
     failure.first_error.code.should eq :a
   end
 
+  # The doc used to promise `IndexError`, which `Enumerable::EmptyError`
+  # is not a subclass of, so a rescue written against the doc caught
+  # nothing. The behaviour is the stdlib one; the doc is what changed.
+  it "raises Enumerable::EmptyError when built with no errors at all" do
+    empty = OperationCr::Failure.new([] of OperationCr::Error)
+    expect_raises(Enumerable::EmptyError) { empty.first_error }
+    (Enumerable::EmptyError < IndexError).should be_false
+  end
+
   it "exposes every code in order" do
     failure = OperationCr::Failure.new([OperationCr::Error.new(:a), OperationCr::Error.new(:b)])
     failure.codes.should eq [:a, :b]

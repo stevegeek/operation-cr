@@ -166,8 +166,10 @@ module OperationCr
       self
     end
 
-    # The first reason this failed. Raises `IndexError` on a `Failure`
-    # constructed with an empty error array.
+    # The first reason this failed. Raises `Enumerable::EmptyError` — what
+    # `Array#first` raises — on a `Failure` constructed with an empty error
+    # array. Note that `Enumerable::EmptyError` inherits from `Exception`,
+    # **not** from `IndexError`, so rescue it by name.
     def first_error : Error
       @errors.first
     end
