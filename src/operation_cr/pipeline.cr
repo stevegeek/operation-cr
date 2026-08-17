@@ -55,6 +55,25 @@ module OperationCr
   # Key collisions: if two steps return the same key, the later step's
   # value wins (standard `NamedTuple#merge` semantics).
   #
+  # A returned `Failure` stops the pipeline and is tagged with the failing
+  # step's name, readable as `failure.step`. That is what tells two steps
+  # returning the same code apart, and it is set whether or not the
+  # pipeline defines `on_step_failure`. An already-tagged `Failure` keeps
+  # its tag, so a nested pipeline's attribution survives.
+  #
+  # ## Known limitation: a step that can only fail
+  #
+  # A step whose `perform` type is exactly `Failure` — never `Success` —
+  # types the context that follows it as `NoReturn`, because every path
+  # through that step short-circuits. Every later step's context
+  # extraction then type-checks vacuously, which silently disables the
+  # compile-time missing-key check for the rest of the pipeline.
+  #
+  # The realistic `Success(NamedTuple) | Failure` shape is unaffected: the
+  # Success branch keeps the context a real NamedTuple and the key check
+  # keeps working. A step that can only ever fail is a pipeline that can
+  # only ever fail, so this is not worth contorting the macro for.
+  #
   # ## Step operations
   #
   # Step operations must declare their inputs via `param :foo, T` (kwargs).
@@ -271,10 +290,11 @@ module OperationCr
 
           {% if result_module_loaded %}
             if %step_result.is_a?(::OperationCr::Failure)
+              %step_failure = %step_result.at_step(:{{ step[:name].id }})
               {% if HAS_STEP_FAILURE_HANDLER[0] %}
-                return __pipeline_on_step_failure(%step_result, :{{ step[:name].id }})
+                return __pipeline_on_step_failure(%step_failure, :{{ step[:name].id }})
               {% else %}
-                return %step_result
+                return %step_failure
               {% end %}
             end
           {% end %}

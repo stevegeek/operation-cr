@@ -123,12 +123,33 @@ module OperationCr
       @errors.dup
     end
 
-    def initialize(errors : Array(Error))
+    # The name of the pipeline step that produced this failure, or nil for
+    # a failure that never went through a `Pipeline`.
+    #
+    # `Pipeline` tags every `Failure` a step returns before it short-circuits,
+    # so the caller can tell two steps returning the same code apart — and
+    # can tell which pipeline position an operation reused in several
+    # pipelines failed at. Without the tag the only answer is the one
+    # `on_step_failure` gives you, and only if you defined it.
+    getter step : Symbol?
+
+    def initialize(errors : Array(Error), @step : Symbol? = nil)
       @errors = errors.dup
     end
 
-    def initialize(code : Symbol, field : String? = nil, detail : String? = nil)
+    def initialize(code : Symbol, field : String? = nil, detail : String? = nil, @step : Symbol? = nil)
       @errors = [Error.new(code, field, detail)]
+    end
+
+    # Returns a copy tagged with *step_name*, or self if this failure is
+    # already tagged.
+    #
+    # The first tag wins so that the innermost origin survives: a `Failure`
+    # a nested pipeline already attributed keeps that attribution when the
+    # outer pipeline short-circuits on it.
+    def at_step(step_name : Symbol) : Failure
+      return self if @step
+      Failure.new(@errors, step_name)
     end
 
     def ok? : Bool
@@ -158,8 +179,11 @@ module OperationCr
 
     # Combines two failures, concatenating their errors. Useful when
     # validating several inputs and reporting all of them at once.
+    #
+    # The combined failure keeps the left-hand `step` tag, falling back to
+    # the right-hand one when the left is untagged.
     def +(other : Failure) : Failure
-      Failure.new(@errors + other.@errors)
+      Failure.new(@errors + other.@errors, @step || other.@step)
     end
 
     # :nodoc:

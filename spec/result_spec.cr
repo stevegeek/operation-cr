@@ -148,6 +148,32 @@ describe OperationCr::Failure do
     fail_b.codes.should eq [:a]
   end
 
+  describe "#step" do
+    it "is nil on a failure nobody has tagged" do
+      OperationCr::Failure.new(:nope).step.should be_nil
+    end
+
+    it "tags a copy, leaving the original untagged" do
+      failure = OperationCr::Failure.new(:nope)
+      tagged = failure.at_step(:validate)
+      tagged.step.should eq :validate
+      failure.step.should be_nil
+      tagged.codes.should eq [:nope]
+    end
+
+    it "keeps the first tag, so the innermost origin survives" do
+      OperationCr::Failure.new(:nope).at_step(:inner).at_step(:outer).step.should eq :inner
+    end
+
+    it "leaves equality of untagged failures alone" do
+      OperationCr::Failure.new(:a).should eq OperationCr::Failure.new(:a)
+    end
+
+    it "distinguishes the same errors reported by different steps" do
+      OperationCr::Failure.new(:a).at_step(:one).should_not eq OperationCr::Failure.new(:a).at_step(:two)
+    end
+  end
+
   it "combines with another failure, concatenating errors" do
     combined = OperationCr::Failure.new(:a, "one") + OperationCr::Failure.new(:b, "two")
     combined.codes.should eq [:a, :b]

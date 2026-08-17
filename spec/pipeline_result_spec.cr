@@ -72,6 +72,18 @@ class PipelineResultSpec::OrderPipeline < OperationCr::Pipeline
   step ComputeTotal
 end
 
+class PipelineResultSpec::NamedStepPipeline < OperationCr::Pipeline
+  step :check_the_quantity, ValidateQuantity
+end
+
+class PipelineResultSpec::TaggedHandlerPipeline < OperationCr::Pipeline
+  step ValidateQuantity
+
+  on_step_failure do |failure, _step_name|
+    failure.step
+  end
+end
+
 class PipelineResultSpec::HandledOrderPipeline < OperationCr::Pipeline
   step ValidateQuantity
   step FetchPrice
@@ -167,6 +179,24 @@ describe "OperationCr::Pipeline with Results" do
       PipelineResultSpec::ComputeTotal.calls.should eq 0
     end
 
+    # Without on_step_failure the Failure is all the caller gets, so it has
+    # to say which step produced it — two steps can return the same code,
+    # and one operation can appear in several pipelines.
+    it "tags the returned Failure with the failing step's name" do
+      PipelineResultSpec::OrderPipeline.call(quantity: 0, product_id: 2)
+        .as(OperationCr::Failure).step.should eq :validate_quantity
+    end
+
+    it "tags with whichever step failed" do
+      PipelineResultSpec::OrderPipeline.call(quantity: 3, product_id: 0)
+        .as(OperationCr::Failure).step.should eq :fetch_price
+    end
+
+    it "uses the explicit step name when one is given" do
+      PipelineResultSpec::NamedStepPipeline.call(quantity: 0)
+        .as(OperationCr::Failure).step.should eq :check_the_quantity
+    end
+
     it "types the pipeline as `context | Failure`" do
       typeof(PipelineResultSpec::OrderPipeline.call(quantity: 1, product_id: 1)).should eq(
         Union(
@@ -194,6 +224,10 @@ describe "OperationCr::Pipeline with Results" do
     it "its return value becomes the pipeline's return value" do
       result = PipelineResultSpec::HandledOrderPipeline.call(quantity: 0, product_id: 2)
       result.should_not be_a OperationCr::Failure
+    end
+
+    it "receives a Failure already tagged with the failing step" do
+      PipelineResultSpec::TaggedHandlerPipeline.call(quantity: 0).should eq :validate_quantity
     end
 
     it "does not interfere with the happy path" do

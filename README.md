@@ -341,8 +341,10 @@ detail : String? = nil`.
 | `#ok? : Bool` | `false`. |
 | `#and_then { ... }` | Returns self. **The block never runs.** |
 | `#map { ... }` | Returns self. The block never runs. |
-| `#first_error : Error` | |
+| `#first_error : Error` | Raises `Enumerable::EmptyError` if built with an empty array. |
 | `#codes : Array(Symbol)` | Every error's code, in order. |
+| `#step : Symbol?` | The pipeline step that produced it; nil for a failure built outside a pipeline. |
+| `#at_step(step_name : Symbol) : Failure` | A copy tagged with that step. Already-tagged failures are returned unchanged, so the innermost origin survives. |
 | `#+(other : Failure) : Failure` | Concatenates errors — report all bad inputs at once. |
 
 ```crystal
@@ -406,6 +408,22 @@ end
 it, the pipeline returns the `Failure` and the call type is
 `context | OperationCr::Failure` — which the caller then has to handle
 exhaustively.
+
+Either way the `Failure` knows where it came from: the pipeline tags it
+with the failing step's name before it short-circuits, so "which step
+produced `:not_found`?" is answerable without a handler.
+
+```crystal
+result = OrderPipeline.call(quantity: 0, product_id: 2)
+result.as(OperationCr::Failure).step  # => :validate_quantity
+```
+
+A `Failure` that is already tagged keeps its tag, so when a pipeline step
+runs a nested pipeline the innermost origin survives.
+
+The handler runs **outside** the `begin`/`rescue` that `on_failure`
+protects. An exception it raises reaches the caller as itself, rather than
+being caught by `on_failure` and reported as the step raising.
 
 It is **separate from `on_failure`** on purpose. `on_failure` is for
 exceptions a step raised; `on_step_failure` is for a `Failure` a step
