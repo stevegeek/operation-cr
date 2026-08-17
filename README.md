@@ -139,6 +139,13 @@ With the opt-in Result module there is also `.and_then`, which unwraps a
 `Failure` — see [Results (opt-in)](#results-opt-in). `.then` is unchanged:
 it always runs its block, on whatever the previous step returned.
 
+`.then` still has a job once Results are in play: inspecting the wrapped
+value by hand instead of short-circuiting.
+
+```crystal
+ParseInt.then { |result| result.is_a?(OperationCr::Failure) ? "invalid" : "ok: #{result.value}" }
+```
+
 ### Declarative pipelines — `OperationCr::Pipeline`
 
 For workflows of 3+ steps with hooks between them, `Pipeline` is more
