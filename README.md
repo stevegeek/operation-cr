@@ -492,17 +492,21 @@ The `examples/` directory has end-to-end samples for every feature:
 ```bash
 script/cr spec                  # run the spec suite (121 examples)
 script/check-compile-errors     # run the compile-error examples
+script/lint                     # ameba (clean baseline)
 crystal tool format --check src/ spec/ examples/
 ```
 
-CI runs all three on every push and pull request
-(`.github/workflows/ci.yml`).
+CI runs all four on every push and pull request
+(`.github/workflows/ci.yml`), with the spec suite on both the Crystal floor
+declared in `shard.yml` and the current release.
 
-`ameba` is deliberately not a development dependency. Its latest release
-(1.6.4) does not compile against Crystal 1.20.1 — `undefined method
-'next_string_array_token' for Crystal::Lexer` — and only an unreleased
-`v1.7.0-dev` tag carries the fix. Add it back when a compatible release
-exists.
+`ameba` is pinned to a commit rather than a release: the latest release
+(1.6.4) does not compile on Crystal 1.21 — `undefined method
+'next_string_array_token' for Crystal::Lexer` — and the fix is only on
+master. 1.6.4 is fine on 1.20.1, so the pin is about the newer compiler
+rather than about this shard. That commit ships no postinstall hook, so
+`shards install` leaves no binary behind; `script/lint` builds it on first
+use.
 
 The `examples/should_fail_*.cr` files are compile-error documentation: each
 one must fail to compile, with the message it documents. The spec suite

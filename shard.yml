@@ -16,6 +16,17 @@ crystal: '>= 1.20.1'
 
 license: MIT
 
+# Pinned to a commit, not a version: ameba's latest RELEASE (1.6.4) does not
+# compile on Crystal 1.21 — `undefined method 'next_string_array_token' for
+# Crystal::Lexer` — and the fix is only on master. 1.6.4 is fine on 1.20.1, so
+# this pin is about the newer compiler, not about the shard. Move to `version:
+# ~> 1.7` once 1.7.0 ships. A commit rather than `branch: master` so CI cannot
+# break because someone else pushed.
+development_dependencies:
+  ameba:
+    github: crystal-ameba/ameba
+    commit: f53fcd3
+
 repository: https://github.com/stevegeek/operation-cr
 homepage: https://github.com/stevegeek/operation-cr
 documentation: https://github.com/stevegeek/operation-cr#readme

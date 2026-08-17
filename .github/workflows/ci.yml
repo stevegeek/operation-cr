@@ -59,3 +59,29 @@ jobs:
             fi
           done
           exit $status
+
+  # Its own job, on one Crystal only: ameba has to be compiled from source
+  # (the pinned commit ships no postinstall hook), which is slow enough that
+  # doing it once per matrix leg would dominate the run. Lint findings do not
+  # differ per compiler version.
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: latest
+
+      - name: Install dependencies
+        run: shards install --skip-postinstall --skip-executables
+
+      - name: Cache the ameba binary
+        uses: actions/cache@v4
+        with:
+          path: bin/ameba
+          key: ameba-${{ runner.os }}-${{ hashFiles('shard.lock') }}
+
+      - name: Lint
+        run: script/lint
