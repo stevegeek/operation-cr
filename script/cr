@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
 # Wrapper for crystal that sets CRYSTAL_LIBRARY_PATH so the embedded libgc is found.
 # Needed because asdf 0.18 (Go-based) bypasses the upstream asdf-crystal bash wrapper.
+#
+# Asks asdf where the current crystal lives rather than naming a version, so
+# the wrapper keeps working across upgrades. Where there is no asdf at all —
+# CI, a system or Homebrew install — the shim is unnecessary: fall through to
+# whatever `crystal` is on PATH instead of failing.
 set -euo pipefail
 
-CRYSTAL_INSTALL="${HOME}/.asdf/installs/crystal/1.20.1"
-export CRYSTAL_LIBRARY_PATH="${CRYSTAL_LIBRARY_PATH:+$CRYSTAL_LIBRARY_PATH:}${CRYSTAL_INSTALL}/embedded/lib"
+if command -v asdf >/dev/null 2>&1; then
+  if CRYSTAL_INSTALL="$(asdf where crystal 2>/dev/null)" && [ -d "${CRYSTAL_INSTALL}/embedded/lib" ]; then
+    export CRYSTAL_LIBRARY_PATH="${CRYSTAL_LIBRARY_PATH:+$CRYSTAL_LIBRARY_PATH:}${CRYSTAL_INSTALL}/embedded/lib"
+  fi
+fi
+
 exec crystal "$@"

@@ -1,3 +1,6 @@
+# script/check-compile-errors asserts this file fails to compile with:
+# expect-error: unknown param `grete` for GreetUser. Valid params: name, greeting
+#
 require "../src/operation_cr"
 
 class GreetUser < OperationCr::Operation

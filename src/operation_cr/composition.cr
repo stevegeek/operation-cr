@@ -9,10 +9,19 @@ module OperationCr
   #              directly).
   #   R        - StartOp's `perform` return type, i.e. typeof(StartOp.allocate.perform).
   #   FinalT   - the chain's overall result type after all transforms / next ops.
+  #   ValueT   - FinalT with a `Success` unwrapped, i.e. the type an
+  #              `#and_then` block receives. For a chain that never uses the
+  #              opt-in Result module this is just FinalT.
   #
   # The chain holds a single `Proc(R, FinalT)` that represents "everything that
   # happens after StartOp produces its result". Each `.then` extends that proc.
-  class Chain(StartOp, R, FinalT)
+  #
+  # ValueT has to be a type parameter rather than a `typeof(...)` computed
+  # inside `#and_then`: Crystal rejects `typeof` in a block's type
+  # restriction ("can't use 'typeof' here"), and a captured block needs an
+  # explicit Proc signature. A class type variable is the only spelling of
+  # "the type inside this chain's Success" that a restriction accepts.
+  class Chain(StartOp, R, FinalT, ValueT)
     @transform : R -> FinalT
 
     def initialize(@transform : R -> FinalT)
@@ -52,7 +61,12 @@ module OperationCr
         next_args = transform_block.call(intermediate)
         NextOp.call(**next_args)
       }
-      ::OperationCr::Chain(StartOp, R, typeof(NextOp.allocate.perform)).new(new_transform)
+      ::OperationCr::Chain(
+        StartOp,
+        R,
+        typeof(NextOp.allocate.perform),
+        typeof(::OperationCr.unwrap_value(NextOp.allocate.perform)),
+      ).new(new_transform)
     end
 
     # Block-only transform (no next op). Block receives the current FinalT and
@@ -65,7 +79,75 @@ module OperationCr
         intermediate = old_transform.call(r)
         transform_block.call(intermediate)
       }
-      ::OperationCr::Chain(StartOp, R, NewT).new(new_transform)
+      ::OperationCr::Chain(
+        StartOp,
+        R,
+        NewT,
+        typeof(::OperationCr.unwrap_value(::OperationCr.__proc_result_type(transform_block))),
+      ).new(new_transform)
+    end
+
+    # Result-aware sibling of `#then`. Requires the opt-in Result module
+    # (`require "operation_cr/result"`).
+    #
+    # When the chain's current value is a `Success`, *block* receives the
+    # **unwrapped** payload and returns a NamedTuple of kwargs for
+    # `next_op`, exactly like `#then`. When it is a `Failure`, the block
+    # does not run and that `Failure` becomes the chain's result.
+    #
+    # `#then` is untouched: it always runs its block, on the wrapped value.
+    #
+    # On a chain that never carries a Result, `ValueT == FinalT` and the
+    # `Failure` guard is statically unreachable, so `#and_then` degrades to
+    # `#then` with no widening of the chain's type.
+    def and_then(next_op : NextOp.class, &block : ValueT -> _) forall NextOp
+      {% if !::OperationCr.has_constant?("Failure") %}
+        {% raise "Chain#and_then needs the opt-in Result module. Add: require \"operation_cr/result\" (see src/operation_cr/result.cr)." %}
+      {% end %}
+      # See `#then(next_op, &block)` above for the snapshot rationale.
+      old_transform = @transform
+      transform_block = block
+      new_transform = ->(r : R) {
+        intermediate = old_transform.call(r)
+        if intermediate.is_a?(::OperationCr::Failure)
+          intermediate
+        else
+          next_args = transform_block.call(::OperationCr.unwrap_value(intermediate))
+          NextOp.call(**next_args)
+        end
+      }
+      ::OperationCr::Chain(
+        StartOp,
+        R,
+        typeof(::OperationCr.__proc_result_type(new_transform)),
+        typeof(::OperationCr.unwrap_value(::OperationCr.__proc_result_type(new_transform))),
+      ).new(new_transform)
+    end
+
+    # Block-only Result-aware transform (no next op). On `Success` the
+    # block receives the unwrapped payload; on `Failure` it does not run
+    # and the `Failure` is passed through.
+    def and_then(&block : ValueT -> NewT) forall NewT
+      {% if !::OperationCr.has_constant?("Failure") %}
+        {% raise "Chain#and_then needs the opt-in Result module. Add: require \"operation_cr/result\" (see src/operation_cr/result.cr)." %}
+      {% end %}
+      # See `#then(next_op, &block)` above for the snapshot rationale.
+      old_transform = @transform
+      transform_block = block
+      new_transform = ->(r : R) {
+        intermediate = old_transform.call(r)
+        if intermediate.is_a?(::OperationCr::Failure)
+          intermediate
+        else
+          transform_block.call(::OperationCr.unwrap_value(intermediate))
+        end
+      }
+      ::OperationCr::Chain(
+        StartOp,
+        R,
+        typeof(::OperationCr.__proc_result_type(new_transform)),
+        typeof(::OperationCr.unwrap_value(::OperationCr.__proc_result_type(new_transform))),
+      ).new(new_transform)
     end
 
     # Partial application of the head's positional + keyword args.
@@ -122,6 +204,7 @@ module OperationCr
         {{ @type }},
         typeof({{ @type }}.allocate.perform),
         typeof({{ next_op }}.allocate.perform),
+        typeof(::OperationCr.unwrap_value({{ next_op }}.allocate.perform)),
       ).new(
         ->({{ block.args.first.id }} : typeof({{ @type }}.allocate.perform)) {
           %next_args = ({{ block.body }})
@@ -139,6 +222,55 @@ module OperationCr
         {{ @type }},
         typeof({{ @type }}.allocate.perform),
         typeof({{ @type }}.__chain_transform_result(%transform)),
+        typeof(::OperationCr.unwrap_value({{ @type }}.__chain_transform_result(%transform))),
+      ).new(%transform)
+    end
+
+    # `.and_then(NextOp) { |value| {arg: value, ...} }` — starts a chain
+    # whose first hop is Result-aware. Requires the opt-in Result module.
+    # If this op returned a `Success`, the block receives the unwrapped
+    # payload; if it returned a `Failure`, the block does not run and the
+    # `Failure` is the chain's result.
+    macro and_then(next_op, &block)
+      {% if !::OperationCr.has_constant?("Failure") %}
+        {% raise "Operation.and_then needs the opt-in Result module. Add: require \"operation_cr/result\" (see src/operation_cr/result.cr)." %}
+      {% end %}
+      %transform = ->(%head : typeof({{ @type }}.allocate.perform)) {
+        if %head.is_a?(::OperationCr::Failure)
+          %head
+        else
+          {{ block.args.first.id }} = ::OperationCr.unwrap_value(%head)
+          %next_args = ({{ block.body }})
+          {{ next_op }}.call(**%next_args)
+        end
+      }
+      ::OperationCr::Chain(
+        {{ @type }},
+        typeof({{ @type }}.allocate.perform),
+        typeof(::OperationCr.__proc_result_type(%transform)),
+        typeof(::OperationCr.unwrap_value(::OperationCr.__proc_result_type(%transform))),
+      ).new(%transform)
+    end
+
+    # `.and_then { |value| transformed }` — block-only Result-aware
+    # transform, no next op.
+    macro and_then(&block)
+      {% if !::OperationCr.has_constant?("Failure") %}
+        {% raise "Operation.and_then needs the opt-in Result module. Add: require \"operation_cr/result\" (see src/operation_cr/result.cr)." %}
+      {% end %}
+      %transform = ->(%head : typeof({{ @type }}.allocate.perform)) {
+        if %head.is_a?(::OperationCr::Failure)
+          %head
+        else
+          {{ block.args.first.id }} = ::OperationCr.unwrap_value(%head)
+          ({{ block.body }})
+        end
+      }
+      ::OperationCr::Chain(
+        {{ @type }},
+        typeof({{ @type }}.allocate.perform),
+        typeof(::OperationCr.__proc_result_type(%transform)),
+        typeof(::OperationCr.unwrap_value(::OperationCr.__proc_result_type(%transform))),
       ).new(%transform)
     end
 
