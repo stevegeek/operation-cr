@@ -67,7 +67,7 @@ module OperationCr
     def self.pop : Trace?
       fid = ::Fiber.current.object_id
       stack = @@stacks[fid]?
-      return nil unless stack
+      return unless stack
       result = stack.pop?
       @@stacks.delete(fid) if stack.empty?
       result
